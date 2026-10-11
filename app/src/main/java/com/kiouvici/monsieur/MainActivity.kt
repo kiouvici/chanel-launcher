@@ -186,6 +186,7 @@ class MainActivity : ComponentActivity(), MediaHost {
 
         androidx.core.view.ViewCompat.requestApplyInsets(root)
         root.post { applyInsets(); setOpen(0f) }
+        root.postDelayed({ shotIntent(intent) }, 1200)
 
         // 화면이 꺼지면 표지로 돌려 둠 → 켤 때 항상 표지부터. 날짜는 매 분 확인
         registerReceiver(sysRx, android.content.IntentFilter().apply {
@@ -267,8 +268,23 @@ class MainActivity : ComponentActivity(), MediaHost {
 
     private fun closeAllNow() { hideMenu(); hideSettingsSheet(); hideCollection(); hideCard(); if (::search.isInitialized) search.setText(""); anim?.cancel(); setOpen(0f) }
 
+    /** 화면 점검용 (adb am start --ei theme 0~4 --ei page 0~3 --ez drawer true --ei folder n) — 사람이 누를 일은 없음 */
+    private fun shotIntent(i: Intent?) {
+        i ?: return
+        val t = i.getIntExtra("theme", -1)
+        if (t in 0..4 && t != look.theme) applyTheme(t)
+        val pg = i.getIntExtra("page", -1)
+        if (pg in 0..3) { closeAllNow(); goPage(pg, false) }
+        if (i.getBooleanExtra("drawer", false)) root.postDelayed({
+            setOpen(1f)
+            val f = i.getIntExtra("folder", -1)
+            if (f >= 0) root.postDelayed({ repo.folders().getOrNull(f)?.let { showFolder(it) } }, 500)
+        }, 400)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (intent.hasExtra("theme") || intent.hasExtra("page") || intent.hasExtra("drawer")) { root.postDelayed({ shotIntent(intent) }, 300); return }
         // 홈 버튼: 열린 것만 닫는다 (서랍은 끌어올리기로만 연다 — 성훈님 결정)
         if (Intent.ACTION_MAIN == intent.action) {
             val wasClosed = openP == 0f && card.visibility != View.VISIBLE
@@ -531,18 +547,24 @@ class MainActivity : ComponentActivity(), MediaHost {
  (function walk(r){ if(hit) return; r.querySelectorAll('*').forEach(function(e){ if(e.shadowRoot) walk(e.shadowRoot); });
    var tw=document.createTreeWalker(r,NodeFilter.SHOW_TEXT),n;
    while(!hit&&(n=tw.nextNode())){ var t=(n.textContent||'').trim(); if(/^-?\d+(\.\d+)?°\s*·/.test(t)&&t.length<60&&t.indexOf('›')<0) hit=t; } })(document);
- if(hit) return hit;
- // 화면에 아직 안 그려졌으면: 대시보드와 같은 네이버 날씨 값으로 기온·상태만
  var st=ha.hass.states['weather.naver_weather_jeceonsi_jangragdong_nalssi_jeceonsi_jangragdong'];
- if(st&&st.attributes&&st.attributes.temperature!=null){
-   var c=ha.hass.formatEntityState?ha.hass.formatEntityState(st):st.state;
-   return Math.round(st.attributes.temperature)+'° · '+c; }
- return ''; }catch(e){ return ''; }})()"""
+ var o={line:hit,state:'',temp:null};
+ if(st){ o.state=st.state||''; if(st.attributes&&st.attributes.temperature!=null) o.temp=st.attributes.temperature;
+   // 화면에 아직 안 그려졌으면: 대시보드와 같은 네이버 날씨 값으로 기온·상태만
+   if(!hit&&o.temp!=null){ var c=ha.hass.formatEntityState?ha.hass.formatEntityState(st):st.state; o.line=Math.round(o.temp)+'° · '+c; } }
+ return o.line?JSON.stringify(o):''; }catch(e){ return ''; }})()"""
         web.evaluateJavascript(js) { r ->
-            val t = try { org.json.JSONArray("[" + (r ?: "\"\"") + "]").optString(0, "") } catch (e: Exception) { "" }
+            val raw = try { org.json.JSONArray("[" + (r ?: "\"\"") + "]").optString(0, "") } catch (e: Exception) { "" }
+            val o = try { if (raw.startsWith("{")) org.json.JSONObject(raw) else null } catch (e: Exception) { null }
+            val t = o?.optString("line", "") ?: ""
             if (t.isBlank() || t == "null") { weather.visibility = View.INVISIBLE; return@evaluateJavascript }
             weather.text = styledWeather(t)
             weather.visibility = View.VISIBLE
+            // 테마 표지·서랍에도 같은 날씨 (LIBRARY는 영어 문장으로)
+            themeCover.weatherLine = t
+            themeCover.weatherState = o?.optString("state", "") ?: ""
+            themeCover.weatherTemp = o?.takeIf { !it.isNull("temp") }?.optDouble("temp")?.takeIf { !it.isNaN() }
+            themeCover.tick(); updateThemeClock()
         }
     }
 
@@ -760,6 +782,7 @@ class MainActivity : ComponentActivity(), MediaHost {
 
     private fun closeAll() {
         hideMenu()
+        hideCollection()
         hideSettingsSheet()
         hideCard()
         search.setText("")
