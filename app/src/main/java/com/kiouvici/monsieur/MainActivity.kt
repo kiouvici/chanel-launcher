@@ -181,7 +181,7 @@ class MainActivity : ComponentActivity() {
         override fun onReceive(c: android.content.Context?, i: Intent?) {
             when (i?.action) {
                 Intent.ACTION_SCREEN_OFF -> { closeAllNow(); goPage(0, false) }
-                else -> updateDate()
+                else -> { updateDate(); refreshWeather() }
             }
         }
     }
@@ -203,6 +203,7 @@ class MainActivity : ComponentActivity() {
         repo.reload()
         refreshGrid()
         updateDate()
+        root.postDelayed({ refreshWeather() }, 1500)
         if (!pageLoaded) web.reload()
     }
 
@@ -296,7 +297,7 @@ class MainActivity : ComponentActivity() {
                     showLogin(); return
                 }
                 view?.evaluateJavascript(HIDE_HEADER_JS, null)
-                if (isHome) { pageLoaded = true; hideProgress() }
+                if (isHome) { pageLoaded = true; hideProgress(); root.postDelayed({ refreshWeather() }, 4000) }
             }
             override fun onReceivedError(view: WebView?, req: WebResourceRequest?, err: WebResourceError?) {
                 if (req?.isForMainFrame == true && isHome) { pageLoaded = false; showFail() }
@@ -328,6 +329,9 @@ class MainActivity : ComponentActivity() {
 
     /** 표지: 상태바 뒤까지 꽉 찬 상자 뚜껑 + CHANEL · MONSIEUR + 날짜 (+ 뒤에서 HA를 준비할 때만 금선) */
     private lateinit var wordmark: TextView
+    private lateinit var frame: View
+    private lateinit var clock: TextView
+    private lateinit var weather: TextView
     private lateinit var monsieur: TextView
     private fun buildCover(): FrameLayout {
         val c = FrameLayout(this).apply { setBackgroundColor(Style.INK) }
@@ -345,6 +349,15 @@ class MainActivity : ComponentActivity() {
         c.addView(monsieur, FrameLayout.LayoutParams(-1, -2))
         dateText = label("", Style.jost(this, 300), 11f, Style.ivory(.6f), .3f)
         c.addView(dateText, FrameLayout.LayoutParams(-1, -2))
+        // 시계: 휴대폰 시각, Jost 200 64sp, 숫자 폭 고정 (샤넬팀 6:1)
+        clock = label("", Style.jost(this, 200), 64f, Style.ivory(.9f), .02f).apply { fontFeatureSettings = "tnum" }
+        c.addView(clock, FrameLayout.LayoutParams(-1, -2))
+        // 날씨 한 줄: CHANEL 홈에 실제로 보이는 문장을 그대로 (HA가 끊기면 숨김)
+        weather = label("", Style.kr(this, 300), 13f, Style.ivory(.6f), .1f).apply { visibility = View.INVISIBLE }
+        c.addView(weather, FrameLayout.LayoutParams(-1, -2))
+        // 테두리: 사진 속 테두리는 잘라 내고 코드로 (1dp 아이보리 40%, 각진 모서리)
+        frame = View(this).apply { background = GradientDrawable().apply { setStroke(dp(1f), Style.ivory(.4f)) } }
+        c.addView(frame, FrameLayout.LayoutParams(-1, -1))
         updateDate()
 
         progressTrack = FrameLayout(this).apply { setBackgroundColor(Style.gold(.2f)) }
@@ -367,28 +380,63 @@ class MainActivity : ComponentActivity() {
         return c
     }
 
-    /** 화면 높이에 맞춰 글자 자리: 워드마크 28%, 날짜는 사진 속 리본(높이 61%) 위 24dp */
+    /** 화면 높이에 맞춰 자리 잡기 — 사진 속 리본은 화면 높이 61.8%~70.6% (테두리를 잘라 낸 사진 기준) */
     private fun layoutCover() {
         val h = root.height.takeIf { it > 0 } ?: return
-        val ribbonTop = (h * .61f).toInt()
+        val ribbonTop = (h * .618f).toInt()
+        val ribbonBottom = (h * .706f).toInt()
+        (frame.layoutParams as FrameLayout.LayoutParams).apply {
+            leftMargin = dp(16f); rightMargin = dp(16f); topMargin = sbTop + dp(12f); bottomMargin = navBot + dp(28f)
+        }
         (wordmark.layoutParams as FrameLayout.LayoutParams).topMargin = (h * .28f).toInt()
+        (clock.layoutParams as FrameLayout.LayoutParams).topMargin = ribbonBottom + dp(32f)
         wordmark.post {
             (monsieur.layoutParams as FrameLayout.LayoutParams).topMargin = (h * .28f).toInt() + wordmark.height + dp(16f)
             monsieur.requestLayout()
-            dateText.post {
-                (dateText.layoutParams as FrameLayout.LayoutParams).topMargin = ribbonTop - dp(24f) - dateText.height
-                dateText.requestLayout()
-            }
+            (dateText.layoutParams as FrameLayout.LayoutParams).topMargin = ribbonTop - dp(24f) - dateText.height
+            dateText.requestLayout()
+            (weather.layoutParams as FrameLayout.LayoutParams).topMargin = ribbonBottom + dp(32f) + clock.height + dp(12f)
+            weather.requestLayout()
         }
-        (progressTrack.layoutParams as FrameLayout.LayoutParams).topMargin = (h * .80f).toInt()
-        (failBox.layoutParams as FrameLayout.LayoutParams).topMargin = (h * .78f).toInt()
-        wordmark.requestLayout(); progressTrack.requestLayout(); failBox.requestLayout()
+        // HA 준비 금선·다시 연결은 테두리 안쪽 맨 아래
+        val inBottom = h - navBot - dp(28f)
+        (progressTrack.layoutParams as FrameLayout.LayoutParams).apply { topMargin = inBottom - dp(16f); leftMargin = dp(32f); rightMargin = dp(32f) }
+        (failBox.layoutParams as FrameLayout.LayoutParams).topMargin = inBottom - dp(96f)
+        listOf(frame, wordmark, clock, progressTrack, failBox).forEach { it.requestLayout() }
+    }
+
+    /** CHANEL 홈 화면(뒤에 열어 둔 웹뷰)에 실제로 보이는 날씨 문장을 읽어 옴. 연결이 끊겼으면 숨김 */
+    private fun refreshWeather() {
+        if (!::web.isInitialized || !::weather.isInitialized) return
+        val js = """(function(){try{
+ var ha=document.querySelector('home-assistant'); if(!ha||!ha.hass||!ha.hass.connected) return '';
+ var hit='';
+ (function walk(r){ if(hit) return; r.querySelectorAll('*').forEach(function(e){ if(e.shadowRoot) walk(e.shadowRoot); });
+   var tw=document.createTreeWalker(r,NodeFilter.SHOW_TEXT),n;
+   while(!hit&&(n=tw.nextNode())){ var t=(n.textContent||'').trim(); if(/^-?\d+(\.\d+)?°\s*·/.test(t)&&t.length<60) hit=t; } })(document);
+ return hit; }catch(e){ return ''; }})()"""
+        web.evaluateJavascript(js) { r ->
+            val t = try { org.json.JSONArray("[" + (r ?: "\"\"") + "]").optString(0, "") } catch (e: Exception) { "" }
+            if (t.isBlank() || t == "null") { weather.visibility = View.INVISIBLE; return@evaluateJavascript }
+            weather.text = styledWeather(t)
+            weather.visibility = View.VISIBLE
+        }
+    }
+
+    /** 숫자는 Jost 300, 글자는 Noto Sans KR 300 */
+    private fun styledWeather(t: String): CharSequence {
+        val sp = android.text.SpannableString(t)
+        Regex("[0-9°.-]+").findAll(t).forEach {
+            sp.setSpan(android.text.style.TypefaceSpan(Style.jost(this, 300)), it.range.first, it.range.last + 1, 0)
+        }
+        return sp
     }
 
     private fun updateDate() {
-        if (!::dateText.isInitialized) return
+        if (!::dateText.isInitialized || !::clock.isInitialized) return
         val cal = java.util.Calendar.getInstance()
         val days = arrayOf("DIMANCHE", "LUNDI", "MARDI", "MERCREDI", "JEUDI", "VENDREDI", "SAMEDI")
+        clock.text = "%02d:%02d".format(cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
         dateText.text = "%d · %d · %s".format(
             cal.get(java.util.Calendar.DAY_OF_MONTH), cal.get(java.util.Calendar.MONTH) + 1,
             days[cal.get(java.util.Calendar.DAY_OF_WEEK) - 1])
