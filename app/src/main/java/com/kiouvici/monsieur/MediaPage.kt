@@ -30,7 +30,9 @@ import kotlin.math.sin
 /** 미디어 페이지가 앱에 부탁하는 일 */
 interface MediaHost {
     val look: Look
-    fun sendSheet(sources: List<String>, current: String, onPick: (String) -> Unit)
+    fun pickSheet(kicker: String, items: List<String>, current: String, note: String?, onPick: (String) -> Unit)
+    /** 소리 창: cur 0 이 폰 · 1 Marantz, dot = 테마색. 고르면 0 이 폰 · 1 Marantz · 2 블루투스 */
+    fun soundSheet(cur: Int, dot: Int, onPick: (Int) -> Unit)
     fun askToken()
     fun photo(): android.graphics.drawable.Drawable
     fun openApp(pkg: String): Boolean
@@ -109,6 +111,13 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     private var volTarget = 0
     private var volTouch = 0L
     private var volSent = 0L
+    private var volPrefix: CharSequence = ""     // CAPTION 'VOLUME · ' · LIBRARY 'Volume · '
+    private var mzPend = -1; private var mzPendAt = 0L   // Marantz에 보낸 값: HA가 같은 값을 알려줄 때까지(최대 5초) 유지
+    // 소리 옮기기: 0 이 폰 · 1 Marantz, 8초 넘으면 실패
+    private var moveTo = -1; private var moveAt = 0L; private var moveFail = false; private var lastMove = -1
+    private var outMore: TextView? = null
+    private var l1: TextView? = null
+    private var mzHead: TextView? = null
     private val am by lazy { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
 
     init { clipChildren = true }
@@ -129,7 +138,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         removeAllViews(); nowViews.clear(); houseViews.clear(); emptyViews.clear()
         art = null; title = null; sub = null; src = null; t0 = null; t1 = null; prog = null; play = null; playText = null
         out = null; sentence = null; whenLine = null; flaps = emptyList(); flapNote = null; spin = null; flowArt = null
-        atvName = null; atvSub = null; atvBtn = null; atvArt = null; mzState = null; mzBtn = null; mzName = null; vol = null; volLbl = null; volVal = null
+        atvName = null; atvSub = null; atvBtn = null; atvArt = null; mzState = null; mzBtn = null; mzName = null; vol = null; volLbl = null; volVal = null; outMore = null; l1 = null; mzHead = null; volPrefix = ""
         val L = Lay(context, this, width, height)
         when (theme) {
             Look.LIBRARY -> buildLibrary(L)
@@ -148,9 +157,14 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         if (on) {
             try { msm.addOnActiveSessionsChangedListener(sessL, comp); permOk = true } catch (e: SecurityException) { permOk = false }
             pickSession(); pollHa(); removeCallbacks(tick); post(tick)
+            try {
+                val f = android.content.IntentFilter("android.media.VOLUME_CHANGED_ACTION")
+                if (android.os.Build.VERSION.SDK_INT >= 33) context.registerReceiver(volRx, f, Context.RECEIVER_EXPORTED) else context.registerReceiver(volRx, f)
+            } catch (_: Exception) {}
         } else {
             try { msm.removeOnActiveSessionsChangedListener(sessL) } catch (_: Exception) {}
             removeCallbacks(tick); removeCallbacks(haLoop); stopAnims()
+            try { context.unregisterReceiver(volRx) } catch (_: Exception) {}
         }
     }
 
@@ -176,9 +190,10 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     private val haLoop = Runnable { pollHa() }
     private fun pollHa() {
         removeCallbacks(haLoop)
+        if (demo > 0) { home = demoHome(); haOk = true; bindHome(); return }
         Ha.states(look.haToken, listOf(Ha.ATV, Ha.MARANTZ, Ha.SPOTIFY)) { m ->
             home = m; haOk = m != null; bindHome()
-            if (visibleNow) postDelayed(haLoop, 5000)
+            if (visibleNow) postDelayed(haLoop, if (moveTo >= 0 || mzPend >= 0) 1000 else 5000)
         }
         haTicks++
     }
@@ -190,14 +205,24 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     }
 
     // ───────── 값 채우기 ─────────
-    private fun meta(k: String) = ctl?.metadata?.getString(k)?.takeIf { it.isNotBlank() } ?: ""
-    private val hasNow get() = ctl != null && meta(MediaMetadata.METADATA_KEY_TITLE).isNotEmpty()
-    private val playing get() = ctl?.playbackState?.state == PlaybackState.STATE_PLAYING
+    /** 화면 점검용 가짜 재생 (adb --ei demo 1 폰 · 2 Marantz) — 사람이 쓸 일은 없음 */
+    var demo = 0
+        set(v) { field = v; if (v > 0) { home = demoHome(); haOk = true }; if (width > 0) { bind(); bindHome() } }
+    private fun demoHome(): Map<String, JSONObject> = mapOf(
+        Ha.ATV to JSONObject().put("state", "off").put("attributes", JSONObject()),
+        Ha.MARANTZ to JSONObject().put("state", if (demo == 2) "playing" else "on").put("attributes", JSONObject().put("volume_level", .23)),
+        Ha.SPOTIFY to JSONObject().put("state", "playing").put("attributes", JSONObject().put("source", if (demo == 2) "Marantz NR1711" else "Galaxy S26 Ultra")))
+    private fun meta(k: String) = if (demo > 0) when (k) {
+        MediaMetadata.METADATA_KEY_TITLE -> "Heaven Knows"; MediaMetadata.METADATA_KEY_ARTIST -> "성시경, Raisa"; MediaMetadata.METADATA_KEY_ALBUM -> "Heaven Knows"; else -> "" }
+        else ctl?.metadata?.getString(k)?.takeIf { it.isNotBlank() } ?: ""
+    private val hasNow get() = demo > 0 || (ctl != null && meta(MediaMetadata.METADATA_KEY_TITLE).isNotEmpty())
+    private val playing get() = (demo == 1) || ctl?.playbackState?.state == PlaybackState.STATE_PLAYING
     private fun appName(): String {
+        if (demo > 0) return "Spotify"
         val pkg = ctl?.packageName ?: return ""
         return try { context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(pkg, 0)).toString() } catch (e: Exception) { pkg }
     }
-    private fun artBmp(): Bitmap? = ctl?.metadata?.let {
+    private fun artBmp(): Bitmap? = if (demo > 0) Style.img(context, "th/riviera_photo.webp") else ctl?.metadata?.let {
         it.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: it.getBitmap(MediaMetadata.METADATA_KEY_ART) ?: it.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
     }
 
@@ -240,30 +265,32 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
                 val cal = java.util.Calendar.getInstance()
                 val day = arrayOf("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")[cal.get(java.util.Calendar.DAY_OF_WEEK) - 1]
                 whenLine?.text = "%s, %d:%02d — %s".format(day, cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE), if (volTarget == 1) "on the Marantz" else "on this phone")
-                out?.text = android.text.SpannableStringBuilder("Listening on $outN — ").append("바꾸기",
-                    android.text.style.UnderlineSpan(), 0)
+                out?.text = if (moveFail || moveTo >= 0) outLabel(outN, "") else android.text.SpannableStringBuilder("Listening on ").append(outN,
+                    android.text.style.TypefaceSpan(Style.kr(context, 300)), 0).append(" — ").append("바꾸기", android.text.style.UnderlineSpan(), 0)
             }
             Look.TRAIN -> {
                 title?.text = t
                 sub?.text = ar
-                out?.text = "출력 · $outN ›"
+                out?.text = outLabel(outN, "")
             }
             Look.CAPTION -> {
                 title?.text = t
-                out?.text = "출력 · $outN →"
+                out?.text = outLabel(outN, "")
+                l1?.text = if (volTarget == 1) "NOW, ON THE MARANTZ —" else "NOW, ON THIS PHONE —"
             }
             Look.HOUR -> {
                 title?.text = t
                 sub?.text = listOf(ar, al).filter { it.isNotEmpty() }.joinToString(" · ")
-                out?.text = "출력 · $outN ›"
+                out?.text = outLabel(outN, "›")
             }
             else -> {
                 title?.text = t
                 sub?.text = listOf(ar, al).filter { it.isNotEmpty() }.joinToString(" · ")
-                src?.text = "${app.uppercase()} · " + if (volTarget == 1) "MARANTZ" else "이 폰"
-                out?.text = "출력 · $outN ›"
+                src?.text = "${app.uppercase()} · " + if (volTarget == 1) "MARANTZ" else "PHONE"
+                out?.text = outLabel(outN, "›")
             }
         }
+        outMore?.visibility = if (moveFail || moveTo >= 0) View.INVISIBLE else View.VISIBLE
         play?.set(if (playing) 2 else 1)
         playText?.text = if (playing) "멈춤" else "재생"
         updateProgress()
@@ -277,7 +304,17 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
 
     }
 
+    /** 소리 줄 글자: '소리 · 기기 ›' · 옮기는 중 · 실패 */
+    private fun outLabel(outN: String, arrow: String): String = when {
+        moveFail -> "소리 · 옮기지 못했습니다 · 다시"
+        moveTo == 1 -> "소리 · Marantz로 옮기는 중…"
+        moveTo == 0 -> "소리 · 이 폰으로 옮기는 중…"
+        else -> "소리 · $outN" + if (arrow.isNotEmpty()) " $arrow" else ""
+    }
+
     private fun updateProgress() {
+        if (demo > 0) { prog?.invoke(.3f); val a = "1:14"; val b = "4:04"
+            when (theme) { Look.LIBRARY -> t1?.text = "$a / $b"; Look.CAPTION -> sub?.text = "성시경, Raisa · Heaven Knows · $a / $b"; else -> { t0?.text = a; t1?.text = b } }; return }
         val st = ctl?.playbackState ?: return
         val dur = ctl?.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
         var pos = st.position
@@ -335,7 +372,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         if (theme < 0) return
         val m = home
         val atv = m?.get(Ha.ATV); val mz = m?.get(Ha.MARANTZ)
-        val noToken = look.haToken.isBlank()
+        val noToken = demo == 0 && look.haToken.isBlank()
         val quiet = noToken || !haOk || (!Ha.on(atv) && !Ha.on(mz))
         houseViews.forEach { it.visibility = if (quiet) View.INVISIBLE else View.VISIBLE }
         quietBox?.visibility = if (quiet) View.VISIBLE else View.GONE
@@ -355,7 +392,12 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         }
         val oldT = volTarget
         updateVol()
-        if (oldT != volTarget) bind()
+        var changed = oldT != volTarget
+        if (moveTo >= 0) {
+            if (volTarget == moveTo) { moveTo = -1; changed = true }
+            else if (SystemClock.uptimeMillis() - moveAt > 8000) { lastMove = moveTo; moveTo = -1; moveFail = true; changed = true }
+        }
+        if (changed) bind()
         if (quiet) return
         val atvOn = Ha.on(atv)
         val app = Ha.attr(atv, "app_name").ifEmpty { Ha.attr(atv, "media_title") }
@@ -374,16 +416,15 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         val vtxt = if (mzV != null) " · $mzV" else ""
         val stateK = if (!mzOn) "꺼짐" else if (mzPlay) "재생 중$vtxt" else "켜짐$vtxt"
         when (theme) {
-            Look.MONSIEUR -> mzState?.text = stateK
-            Look.LIBRARY, Look.CAPTION -> mzName?.text = "Marantz" + if (mzOn) " · " + (if (mzPlay) "재생 중" else (mzV?.toString() ?: "켜짐")) else ""
+            Look.LIBRARY, Look.CAPTION -> mzName?.text = "Marantz" + if (mzOn) " · $stateK" else ""
             else -> mzState?.text = stateK
         }
+        mzHead?.text = "MARANTZ ● " + if (!mzOn) "꺼짐" else if (mzPlay) "재생 중" else "켜짐"
         mzBtn?.text = if (mzOn) "끄기" else "켜기"
     }
 
     /** 볼륨 대상: 폰에서 재생 중이면 PHONE, Spotify를 Marantz로 보냈거나 Marantz가 재생 중이면 MARANTZ */
     private fun updateVol() {
-        val v = vol ?: return
         val m = home
         val sp = m?.get(Ha.SPOTIFY); val mz = m?.get(Ha.MARANTZ)
         val spOnMz = sp?.optString("state") == "playing" && Ha.attr(sp, "source").contains("marantz", true)
@@ -391,35 +432,53 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         val phoneLocal = playing && !remote
         val mzPlaying = mz?.optString("state") == "playing"
         volTarget = if (Ha.on(mz) && (spOnMz || (mzPlaying && !phoneLocal))) 1 else 0
-        v.cap = volTarget == 1
-        volLbl?.text = if (volTarget == 1) "MARANTZ" else "PHONE"
-        if (android.os.SystemClock.uptimeMillis() - volTouch < 1500) return
-        val value = if (volTarget == 1) Math.round((Ha.attr(mz, "volume_level").toDoubleOrNull() ?: 0.0) * 100).toInt()
-            else { val mx = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1); am.getStreamVolume(AudioManager.STREAM_MUSIC) * 100 / mx }
+        val v = vol ?: return
+        v.max = if (volTarget == 1) 50 else 150
+        setVolLabel(if (volTarget == 1) "MARANTZ" else "PHONE")
+        if (SystemClock.uptimeMillis() - volTouch < 700) return
+        val value = if (volTarget == 1) {
+            val ha = Math.round((Ha.attr(mz, "volume_level").toDoubleOrNull() ?: 0.0) * 100).toInt()
+            if (mzPend >= 0 && ha != mzPend && SystemClock.uptimeMillis() - mzPendAt < 5000) mzPend
+            else { mzPend = -1; ha }
+        } else phoneUnits()
         v.value = value; volVal?.text = "$value"
     }
+    /** 폰 볼륨을 삼성 볼륨 창과 같은 0~150 숫자로 */
+    private fun phoneUnits(): Int {
+        val mx = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        return Math.round(am.getStreamVolume(AudioManager.STREAM_MUSIC) * 150f / mx)
+    }
+    private fun setVolLabel(name: String) {
+        val l = volLbl ?: return
+        l.text = if (volPrefix.isEmpty()) name else android.text.SpannableStringBuilder(volPrefix).append(name)
+    }
     private fun setVol(x: Int, final: Boolean) {
-        volTouch = android.os.SystemClock.uptimeMillis()
+        volTouch = SystemClock.uptimeMillis()
         volVal?.text = "$x"
         if (volTarget == 0) {
             val mx = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-            am.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(x * mx / 100f), 0)
+            am.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(x * mx / 150f), 0)
         } else {
-            val now = android.os.SystemClock.uptimeMillis()
+            val now = SystemClock.uptimeMillis()
+            mzPend = x.coerceAtMost(50); mzPendAt = now
             if (!final && now - volSent < 250) return
             volSent = now
-            Ha.call(look.haToken, "media_player", "volume_set", JSONObject().put("entity_id", Ha.MARANTZ).put("volume_level", x.coerceAtMost(50) / 100.0))
+            Ha.call(look.haToken, "media_player", "volume_set", JSONObject().put("entity_id", Ha.MARANTZ).put("volume_level", mzPend / 100.0)) { if (final) pollLater() }
         }
     }
-    /** 볼륨 줄: 라벨(PHONE/MARANTZ) · 막대 · 숫자 */
-    private fun volRow(L: Lay, x: Float, y: Float, w: Float, style: Int, color: Int, dim: Int, labelColor: Int, labelW: Float = 64f) {
-        volLbl = L.t("PHONE", Style.jost(context, 400), 9f, labelColor, .3f).also { L.add(it, x, y + 14f) }
+    /** 볼륨 줄: 막대(재생 막대와 같은 x0~x1, 가운데 y) · 아래 왼쪽 이름표 · 아래 오른쪽 숫자 (재생 시간과 같은 문법) */
+    private fun volRow(L: Lay, x0: Float, x1: Float, y: Float, style: Int, color: Int, dim: Int, labelColor: Int, numColor: Int, labelTop: Float = 5f) {
         val vb = VolBar(context, style, color, dim).apply {
+            padPx = L.zf(8f)
             onChange = { setVol(it, false) }; onRelease = { setVol(it, true) }
         }
-        L.add(vb, x + labelW, y, w - labelW - 40f, 44f); vol = vb
-        volVal = L.t("0", Style.jost(context, 400), 11f, color, 0f, Gravity.END).also { L.add(it, x + w - 34f, y + 13f, 34f) }
+        L.add(vb, x0 - 8f, y - 22f, x1 - x0 + 16f, 44f); vol = vb
+        volLbl = L.t("PHONE", Style.jost(context, 400), 11f, labelColor, .12f).also { L.add(it, x0, y + labelTop) }
+        volVal = L.t("0", Style.jost(context, 500), 11f, numColor, 0f, Gravity.END).apply { fontFeatureSettings = "tnum" }.also { L.add(it, x1 - 40f, y + labelTop, 40f) }
         nowViews += listOf(volLbl!!, vb, volVal!!)
+    }
+    private val volRx = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: Context?, i: android.content.Intent?) { if (volTarget == 0) updateVol() }
     }
 
     // ───────── 버튼 동작 ─────────
@@ -438,7 +497,18 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     private fun doPrev() { ctl?.transportControls?.skipToPrevious() }
     private fun doNext() { ctl?.transportControls?.skipToNext() }
     private fun doPlay() { val c = ctl?.transportControls ?: return; if (playing) c.pause() else c.play() }
+    /** 소리 줄: 실패 상태면 다시 시도, 아니면 소리 창 */
     private fun doOutput() {
+        if (moveFail && lastMove >= 0) { moveFail = false; moveTo(lastMove); return }
+        val dot = when (theme) { Look.HOUR -> H_GOLD; Look.TRAIN -> V_INK; Look.LIBRARY -> 0xFFA8262B.toInt(); else -> Style.INK }
+        host.soundSheet(volTarget, dot) { pick ->
+            when (pick) {
+                2 -> systemOutput()
+                else -> if (pick != volTarget || moveFail) moveTo(pick)
+            }
+        }
+    }
+    private fun systemOutput() {
         try {
             if (android.os.Build.VERSION.SDK_INT >= 34 && android.media.MediaRouter2.getInstance(context).showSystemOutputSwitcher()) return
         } catch (_: Exception) {}
@@ -448,19 +518,37 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
                 .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
         } catch (_: Exception) {}
     }
-    private fun doSend() {
-        if (look.haToken.isBlank()) { host.askToken(); return }
+    /** 0 이 폰 · 1 Marantz 로 Spotify 옮기기 — 누르는 즉시 '옮기는 중…', 1초마다 확인, 8초 넘으면 실패 */
+    private fun moveTo(target: Int) {
+        if (look.haToken.isBlank() || !haOk) { host.askToken(); return }
+        fun start() { moveTo = target; moveAt = SystemClock.uptimeMillis(); moveFail = false; lastMove = target; bind(); pollLater(1000) }
+        if (target == 1) {
+            start()
+            Ha.call(look.haToken, "script", "turn_on", JSONObject().put("entity_id", Ha.LIVING)) { pollLater(1000) }
+            return
+        }
         val sp = home?.get(Ha.SPOTIFY)
         val list = Ha.sources(sp)
-        host.sendSheet(list, Ha.attr(sp, "source")) { s ->
-            if (s == "__living") Ha.call(look.haToken, "script", "turn_on", JSONObject().put("entity_id", Ha.LIVING)) { pollLater() }
-            else Ha.call(look.haToken, "media_player", "select_source", JSONObject().put("entity_id", Ha.SPOTIFY).put("source", s)) { pollLater() }
+        val name = phoneSpotifyName(list)
+        if (name == null) {
+            host.pickSheet("SPOTIFY · 이 폰은 어느 것입니까", list, "", if (list.isEmpty()) "Spotify 기기 목록이 비어 있습니다 · 이 폰에서 Spotify 앱을 한 번 열어 두면 나타납니다" else "한 번 고르면 다음부터는 바로 옮깁니다") { s ->
+                look.spPhone = s; moveTo(0)
+            }
+            return
         }
+        start()
+        Ha.call(look.haToken, "media_player", "select_source", JSONObject().put("entity_id", Ha.SPOTIFY).put("source", name)) { pollLater(1000) }
     }
-    private fun doLiving() {
-        if (look.haToken.isBlank() || !haOk) { host.askToken(); return }
-        Ha.call(look.haToken, "script", "turn_on", JSONObject().put("entity_id", Ha.LIVING)) { pollLater() }
+    /** Spotify 목록에서 이 폰 찾기: 한 번 고른 이름 → 폰 기기 이름 → 모델명 */
+    private fun phoneSpotifyName(list: List<String>): String? {
+        look.spPhone.takeIf { it.isNotEmpty() && list.contains(it) }?.let { return it }
+        val dn = (android.provider.Settings.Global.getString(context.contentResolver, "device_name") ?: "").trim()
+        val model = android.os.Build.MODEL ?: ""
+        return list.firstOrNull { dn.isNotEmpty() && it.equals(dn, true) }
+            ?: list.firstOrNull { dn.isNotEmpty() && (it.contains(dn, true) || dn.contains(it, true)) && !it.contains("marantz", true) }
+            ?: list.firstOrNull { model.isNotEmpty() && it.contains(model, true) }
     }
+    private fun doLiving() = moveTo(1)
     private fun doAtv() {
         val on = Ha.on(home?.get(Ha.ATV))
         Ha.call(look.haToken, "media_player", if (on) "media_play_pause" else "turn_on", JSONObject().put("entity_id", Ha.ATV)) { pollLater() }
@@ -470,7 +558,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         Ha.call(look.haToken, "media_player", if (on) "turn_off" else "turn_on", JSONObject().put("entity_id", Ha.MARANTZ)) { pollLater() }
     }
     private fun doMzOn() = Ha.call(look.haToken, "media_player", "turn_on", JSONObject().put("entity_id", Ha.MARANTZ)) { pollLater() }
-    private fun pollLater() { removeCallbacks(haLoop); postDelayed(haLoop, 900) }
+    private fun pollLater(ms: Long = 900) { removeCallbacks(haLoop); postDelayed(haLoop, ms) }
 
     /** 재생 없음: 스포티파이·지니 열기 (설치된 것만) */
     private var emptyRow: LinearLayout? = null
@@ -509,6 +597,17 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         row.addView(b, LinearLayout.LayoutParams(-2, -1).apply { leftMargin = context.dp(10f) })
         quietBtns = row
     }
+    /** 소리 줄 (VOYAGE·CAPTION): 왼쪽 '소리 · 기기', 오른쪽 '바꾸기', 아래 가는 선 — 줄 전체를 누름 */
+    private fun soundLine(L: Lay, x0: Float, x1: Float, y: Float, sp: Float, color: Int, moreColor: Int, more: String, lineColor: Int): View {
+        val r = FrameLayout(context)
+        r.addView(View(context).apply { setBackgroundColor(lineColor) }, LayoutParams(-1, L.z(.75f).coerceAtLeast(1), Gravity.BOTTOM))
+        out = L.t("", Style.kr(context, 300), sp, color, 0f, Gravity.START or Gravity.CENTER_VERTICAL).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+        r.addView(out, LayoutParams(-1, -1).apply { rightMargin = L.z(80f) })
+        outMore = L.t(more, Style.kr(context, 400), sp - 1.5f, moreColor, 0f, Gravity.END or Gravity.CENTER_VERTICAL)
+        r.addView(outMore, LayoutParams(L.z(80f), -1, Gravity.END))
+        L.add(tap(r) { doOutput() }, x0, y, x1 - x0, 44f)
+        return r
+    }
     private fun hRow() = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
     private fun pad(v: TextView, l: Float, r: Float = l) = v.apply { setPadding(context.dp(l), 0, context.dp(r), 0); gravity = Gravity.CENTER }
 
@@ -524,13 +623,13 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
             background = android.graphics.drawable.LayerDrawable(arrayOf(Style.tile(context, "th/tissue.webp", 360f), android.graphics.drawable.ColorDrawable(tint(.70f, 0xFFF3EEE4.toInt()))))
             elevation = L.zf(10f)
         }
-        L.addLR(tissue, 16f, 16f, 76f, 452f)
+        L.addLR(tissue, 16f, 16f, 56f, 424f)
         // 레코드 + 슬리브
         val vinyl = View(context).apply { background = Pic(Style.img(context, "th/vinyl.webp"), Pic.CONTAIN); elevation = L.zf(11f) }
-        L.add(vinyl, 150f, 104f, 236f, 236f); spin = vinyl
+        L.add(vinyl, 150f, 80f, 236f, 236f); spin = vinyl
         val sleeve = FrameLayout(context).apply { setBackgroundColor(0xFF0D0D0D.toInt()); elevation = L.zf(13f) }
-        L.add(sleeve, 44f, 96f, 252f, 252f)
-        art = ArtView(context).also { sleeve.addView(it, LayoutParams(-1, -1).apply { val m = L.z(14f); setMargins(m, m, m, m) }) }
+        L.add(sleeve, 44f, 80f, 236f, 236f)
+        art = ArtView(context).also { sleeve.addView(it, LayoutParams(-1, -1).apply { val m = L.z(13f); setMargins(m, m, m, m) }) }
         // 재생 없음: 빈 종이 슬리브에 N°31 눌러 찍기
         val es = FrameLayout(context).apply { background = Style.tile(context, Style.PAPER, 256f) }
         es.addView(L.t("N°31", Style.jost(context, 300), 28f, 0xFFE3DCCF.toInt(), .2f, Gravity.CENTER).apply {
@@ -538,49 +637,50 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         sleeve.addView(es, LayoutParams(-1, -1)); emptyViews += es
         val ink = Style.INK
         title = L.t("", Style.jost(context, 400), 24f, ink, .02f, Gravity.CENTER).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; elevation = L.zf(12f) }
-        L.addLR(title!!, 36f, 36f, 372f)
+        L.addLR(title!!, 36f, 36f, 322f)
         sub = L.t("", Style.kr(context, 300), 13f, Style.ink(.72f), 0f, Gravity.CENTER).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; elevation = L.zf(12f) }
-        L.addLR(sub!!, 36f, 36f, 406f)
+        L.addLR(sub!!, 36f, 36f, 356f)
         src = L.t("", Style.jost(context, 400), 9f, Style.GILT, .3f, Gravity.CENTER).apply { elevation = L.zf(12f) }
-        L.addLR(src!!, 36f, 36f, 432f)
+        L.addLR(src!!, 36f, 36f, 386f)
         // 진행: 검정 선 + 둥근 손잡이
         val pv = LineProg(context, Style.ink(.22f), Style.INK, L.zf(1f), L.zf(2f), knobR = L.zf(5.5f), knobRing = 0xFFF3EEE4.toInt()).apply { elevation = L.zf(12f) }
-        L.addLR(pv, 44f, 44f, 462f, 14f); prog = { pv.p = it }
-        t0 = L.t("", Style.jost(context, 400), 10f, Style.ink(.65f), .1f).apply { elevation = L.zf(12f) }
-        L.add(t0!!, 44f, 484f)
-        t1 = L.t("", Style.jost(context, 400), 10f, Style.ink(.65f), .1f, Gravity.END).apply { elevation = L.zf(12f) }
-        L.addLR(t1!!, 44f, 44f, 484f)
+        L.addLR(pv, 38.5f, 38.5f, 417f, 14f); prog = { pv.p = it }
+        t0 = L.t("", Style.jost(context, 400), 11f, Style.ink(.65f), .1f).apply { elevation = L.zf(12f) }
+        L.add(t0!!, 44f, 432f)
+        t1 = L.t("", Style.jost(context, 400), 11f, Style.ink(.65f), .1f, Gravity.END).apply { elevation = L.zf(12f) }
+        L.addLR(t1!!, 44f, 44f, 432f)
         // 버튼: 금 테두리 원 · 리본 단추 · 금 테두리 원
         val prev = FrameLayout(context).apply { background = shape(stroke = tint(.65f, GOLD_LT), strokePx = L.z(1f), oval = true); addView(Glyph(context, 0, GOLD_LT, 1.6f), LayoutParams(-1, -1).apply { val m = L.z(16f); setMargins(m, m, m, m) }) }
         val pl = FrameLayout(context).apply { background = Pic(Style.img(context, "th/btn_ribbon.webp"), Pic.CONTAIN); elevation = L.z(4f).toFloat() }
-        play = Glyph(context, 2, Style.INK, 2.4f).also { pl.addView(it, LayoutParams(-1, -1).apply { val m = L.z(31f); setMargins(m, m, m, m) }) }
+        play = Glyph(context, 2, Style.INK, 2.2f).also { pl.addView(it, LayoutParams(-1, -1).apply { val m = L.z(26f); setMargins(m, m, m, m) }) }
         val next = FrameLayout(context).apply { background = shape(stroke = tint(.65f, GOLD_LT), strokePx = L.z(1f), oval = true); addView(Glyph(context, 3, GOLD_LT, 1.6f), LayoutParams(-1, -1).apply { val m = L.z(16f); setMargins(m, m, m, m) }) }
-        L.add(tap(prev) { doPrev() }, 70f, 552f, 52f, 52f); L.add(tap(pl) { doPlay() }, 164f, 536f, 84f, 84f); L.add(tap(next) { doNext() }, 290f, 552f, 52f, 52f)
-        volRow(L, 28f, 624f, 356f, VolBar.LINE_TAB, Style.IVORY, Style.ivory(.25f), Style.ivory(.7f))
-        out = L.t("", Style.kr(context, 300), 12.5f, Style.ivory(.8f), 0f, Gravity.CENTER)
-        L.addLR(tap(out!!) { doOutput() }, 16f, 16f, 664f, 44f)
+        L.add(tap(prev) { doPrev() }, 92f, 514f, 52f, 52f); L.add(tap(pl) { doPlay() }, 170f, 504f, 72f, 72f); L.add(tap(next) { doNext() }, 268f, 514f, 52f, 52f)
+        volRow(L, 44f, 368f, 608f, VolBar.LINE_TAB, Style.IVORY, Style.ivory(.3f), Style.ivory(.65f), Style.ivory(.65f))
+        out = L.t("", Style.kr(context, 300), 14f, Style.ivory(.85f), 0f, Gravity.CENTER)
+        L.addLR(tap(out!!) { doOutput() }, 16f, 16f, 648f, 44f)
         nowViews += listOf(vinyl, title!!, sub!!, src!!, pv, t0!!, t1!!, prev, pl, next, out!!)
         // 집 카드 (종이 + 안쪽 선): Apple TV · Marantz
         val card = FrameLayout(context).apply {
             background = Style.tile(context, Style.PAPER, 256f); foreground = InsetBox(Style.ink(.45f), L.zf(.75f), L.zf(4f)); elevation = L.zf(8f)
         }
-        L.addLR(card, 16f, 16f, 704f, 152f)
-        val CL = Lay(context, card, L.w - L.x(32f), L.z(152f), 380f, 152f)
+        L.addLR(card, 16f, 16f, 700f, 136f)
+        val CL = Lay(context, card, L.w - L.x(32f), L.z(136f), 380f, 136f)
         CL.add(CL.t("À LA MAISON", Style.jost(context, 400), 10f, Style.GILT, .3f), 16f, 14f)
+        mzHead = CL.t("", Style.jost(context, 400), 10f, Style.ink(.7f), .1f, Gravity.END).also { CL.add(it, 180f, 13f, 184f); houseViews += it }
         fun mrow(top: Float, isAtv: Boolean) {
-            val r = FrameLayout(context); CL.addLR(r, 16f, 16f, top, 58f)
-            val R1 = Lay(context, r, CL.w - CL.x(32f), CL.z(58f), 348f, 58f)
+            val r = FrameLayout(context); CL.addLR(r, 16f, 16f, top, 48f)
+            val R1 = Lay(context, r, CL.w - CL.x(32f), CL.z(48f), 348f, 48f)
             r.addView(View(context).apply { setBackgroundColor(Style.ink(.12f)) }, LayoutParams(-1, 1))
-            if (isAtv) atvArt = ArtView(context).also { R1.add(it, 0f, 8f, 42f, 42f) }
-            else R1.add(View(context).apply { setBackgroundColor(Style.INK) }, 0f, 8f, 42f, 42f)
-            val nm = R1.t(if (isAtv) "Apple TV" else "Marantz", Style.jost(context, 400), 13.5f, Style.INK).also { R1.add(it, 54f, 12f) }
-            val st = R1.t("", Style.kr(context, 300), 11.5f, Style.ink(.65f)).also { R1.add(it, 54f, 33f) }
+            if (isAtv) atvArt = ArtView(context).also { R1.add(it, 0f, 5f, 38f, 38f) }
+            else R1.add(View(context).apply { setBackgroundColor(Style.INK) }, 0f, 5f, 38f, 38f)
+            val nm = R1.t(if (isAtv) "Apple TV" else "Marantz", Style.jost(context, 400), 13.5f, Style.INK).also { R1.add(it, 50f, 6f) }
+            val st = R1.t("", Style.kr(context, 300), 11.5f, Style.ink(.65f)).also { R1.add(it, 50f, 26f) }
             val b = pad(R1.t(if (isAtv) "켜기" else "켜기", Style.kr(context, 400), 12f, Style.IVORY), 0f).apply { setBackgroundColor(Style.INK) }
-            R1.add(tap(b) { if (isAtv) doAtv() else doMz() }, 276f, 7f, 72f, 44f)
+            R1.add(tap(b) { if (isAtv) doAtv() else doMz() }, 276f, 2f, 72f, 44f)
             if (isAtv) { atvName = nm; atvSub = st; atvBtn = b } else { mzName = nm; mzState = st; mzBtn = b }
             houseViews += r
         }
-        mrow(34f, true); mrow(92f, false)
+        mrow(36f, true); mrow(84f, false)
         // 비었을 때 · 조용할 때
         val q = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         val qt = CL.t("집은 조용합니다", Style.kr(context, 400), 15f, Style.INK, 0f, Gravity.CENTER); quietTitle = qt
@@ -605,41 +705,39 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         whenLine = L.t("", Fonts.serifI(context), 17f, Style.ink(.7f)).also { L.add(it, 36f, 92f) }
         // 사진 모서리로 붙인 앨범아트
         val plate = FrameLayout(context).apply { setBackgroundColor(Color.WHITE); elevation = L.zf(3f); clipChildren = false }
-        L.add(plate, 86f, 134f, 240f, 240f)
+        L.add(plate, 86f, 118f, 240f, 240f)
         art = ArtView(context).also { plate.addView(it, LayoutParams(-1, -1).apply { val m = L.z(10f); setMargins(m, m, m, m) }) }
         val corner = Style.img(context, "th/photo_corner.webp")
         listOf(Triple(-1f, -1f, -45f), Triple(1f, -1f, 45f), Triple(-1f, 1f, -135f), Triple(1f, 1f, 135f)).forEach { (sx, sy, rot) ->
             val c = View(context).apply { background = Pic(corner, Pic.CONTAIN); rotation = rot; elevation = L.zf(4f) }
             val cx = if (sx < 0) 86f - 9f else 86f + 240f - 44f + 9f
-            val cy = if (sy < 0) 134f - 1f else 134f + 240f - 28f + 1f
+            val cy = if (sy < 0) 118f - 1f else 118f + 240f - 28f + 1f
             L.add(c, cx, cy, 44f, 28f); nowViews += c
         }
-        title = L.t("", Fonts.serifI(context), 14f, Style.ink(.65f), 0f, Gravity.CENTER).also { L.addLR(it, 36f, 36f, 386f) }
+        title = L.t("", Fonts.serifI(context), 14f, Style.ink(.65f), 0f, Gravity.CENTER).also { L.addLR(it, 36f, 36f, 370f) }
         sentence = L.t("", Fonts.serif(context), 25f, Style.INK, 0f, Gravity.CENTER).apply { setLineSpacing(L.zf(4f), 1f); maxLines = 3; ellipsize = android.text.TextUtils.TruncateAt.END }
-        L.addLR(sentence!!, 36f, 36f, 414f)
+        L.addLR(sentence!!, 36f, 36f, 396f)
         val pv = LineProg(context, Style.ink(.3f), Style.INK, L.zf(1f), L.zf(2f), marker = Style.img(context, "th/bookmark.webp"), markerW = L.zf(14f), markerH = L.zf(34f))
-        L.addLR(pv, 48f, 48f, 490f, 38f); prog = { pv.p = it }
-        t1 = L.t("", Style.jost(context, 400), 10f, Style.ink(.65f), .15f, Gravity.END).also { L.addLR(it, 48f, 48f, 506f) }
+        L.addLR(pv, 29f, 29f, 476f, 38f); prog = { pv.p = it }
+        t1 = L.t("", Style.jost(context, 400), 11f, Style.ink(.65f), .1f, Gravity.END).also { L.addLR(it, 36f, 36f, 489f) }
         val deb = Style.img(context, "th/deboss.webp")
         fun db(kind: Int, size: Float, icon: Float) = FrameLayout(context).apply {
             background = Pic(deb, Pic.CONTAIN)
             val g = Glyph(context, kind, Style.INK, if (size > 70f) 2.2f else 1.6f); addView(g, LayoutParams(-1, -1).apply { val m = L.z((size - icon) / 2); setMargins(m, m, m, m) })
             if (kind == 2) play = g
         }
-        val prev = db(0, 60f, 18f); val pl = db(2, 84f, 22f); val next = db(3, 60f, 18f)
-        L.add(tap(prev) { doPrev() }, 74f, 552f, 60f, 60f); L.add(tap(pl) { doPlay() }, 164f, 540f, 84f, 84f); L.add(tap(next) { doNext() }, 278f, 552f, 60f, 60f)
-        val volWord = L.t("Volume", Fonts.serifI(context), 16f, Style.ink(.7f)).also { L.add(it, 36f, 628f) }
-        nowViews += volWord
-        volRow(L, 36f, 626f, 340f, VolBar.RULER, Style.INK, Style.ink(.3f), Style.ink(.6f), 84f)
-        (volLbl!!.layoutParams as LayoutParams).topMargin = L.y(652f)
-        out = L.t("", Fonts.serif(context), 16f, Style.ink(.75f), 0f, Gravity.CENTER).also { L.addLR(tap(it) { doOutput() }, 36f, 36f, 670f, 40f) }
+        val prev = db(0, 52f, 16f); val pl = db(2, 72f, 20f); val next = db(3, 52f, 16f)
+        L.add(tap(prev) { doPrev() }, 92f, 536f, 52f, 52f); L.add(tap(pl) { doPlay() }, 170f, 526f, 72f, 72f); L.add(tap(next) { doNext() }, 268f, 536f, 52f, 52f)
+        volPrefix = android.text.SpannableStringBuilder().append("Volume", CustomFont(Fonts.serifI(context), 1.4f), 0).append("  ·  ")
+        volRow(L, 36f, 376f, 630f, VolBar.RULER, Style.INK, Style.ink(.3f), Style.ink(.65f), Style.ink(.65f), 9f)
+        out = L.t("", Fonts.serif(context), 16f, Style.ink(.75f), 0f, Gravity.CENTER).apply { maxLines = 1 }.also { L.addLR(tap(it) { doOutput() }, 36f, 36f, 670f, 44f) }
         nowViews += listOf(plate, title!!, sentence!!, pv, t1!!, prev, pl, next, out!!, whenLine!!)
         // 집: 점선 줄
-        val hs = FrameLayout(context); L.addLR(hs, 36f, 36f, 722f, 150f)
-        val H = Lay(context, hs, L.w - L.x(72f), L.z(150f), 340f, 150f)
+        val hs = FrameLayout(context); L.addLR(hs, 36f, 36f, 722f, 120f)
+        val H = Lay(context, hs, L.w - L.x(72f), L.z(120f), 340f, 120f)
         H.add(H.t("IN THE HOUSE", Style.jost(context, 400), 10f, Style.ink(.55f), .3f), 0f, 0f)
         fun lrow(top: Float, label: String, btn: String, go: () -> Unit): Pair<TextView, TextView> {
-            val r = FrameLayout(context); H.addLR(r, 0f, 0f, top, 48f)
+            val r = FrameLayout(context); H.addLR(r, 0f, 0f, top, 46f)
             r.addView(View(context).apply { setBackgroundColor(Style.ink(.15f)) }, LayoutParams(-1, 1))
             val t = H.t(label, Fonts.serif(context), 15f, Style.INK).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
             r.addView(t, LayoutParams(H.z(220f), -2, Gravity.CENTER_VERTICAL))
@@ -648,8 +746,8 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
             r.addView(tap(b, go), LayoutParams(H.z(64f), H.z(44f), Gravity.END or Gravity.CENTER_VERTICAL))
             houseViews += r; return t to b
         }
-        lrow(18f, "Apple TV", "재생") { doAtv() }.let { atvName = it.first; atvBtn = it.second }
-        lrow(66f, "Marantz", "켜기") { doMz() }.let { mzName = it.first; mzState = null; mzBtn = it.second }
+        lrow(24f, "Apple TV", "재생") { doAtv() }.let { atvName = it.first; atvBtn = it.second }
+        lrow(70f, "Marantz", "켜기") { doMz() }.let { mzName = it.first; mzState = null; mzBtn = it.second }
         val q = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         quietTitle = H.t("", Fonts.serif(context), 22f, Style.INK, 0f, Gravity.CENTER); q.addView(quietTitle!!, LinearLayout.LayoutParams(-1, -2))
         val qb = hRow(); quietButtons(qb) { pad(H.t(it, Style.kr(context, 400), 12.5f, Style.INK), 14f).apply { background = shape(stroke = Style.ink(.6f), strokePx = H.z(1f)) } }
@@ -669,50 +767,48 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     private fun buildHour(L: Lay) {
         lightBg = false
         setBackgroundColor(0xFF0E0E0E.toInt())
-        L.add(View(context).apply { background = plateDrawable(context) }, 24f, 56f, 364f, 470f)
+        L.add(View(context).apply { background = plateDrawable(context) }, 24f, 52f, 364f, 461f)
         val aw = FrameLayout(context).apply { background = windowDrawable(context) }
-        L.add(aw, 76f, 80f, 260f, 260f)
+        L.add(aw, 80.5f, 76f, 251f, 251f)
         art = ArtView(context).also { aw.addView(it, LayoutParams(-1, -1).apply { val m = L.z(2f); setMargins(m, m, m, m) }) }
         val tw = FrameLayout(context).apply { background = windowDrawable(context) }
-        L.add(tw, 48f, 360f, 316f, 44f)
+        L.add(tw, 48f, 347f, 316f, 42f)
         title = L.t("", Style.jost(context, 300), 20f, H_IVORY, .02f, Gravity.CENTER).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
         tw.addView(title!!, LayoutParams(-1, -1).apply { leftMargin = L.z(10f); rightMargin = L.z(10f) })
-        sub = L.t("", Style.kr(context, 300), 13f, tint(.65f, H_IVORY), 0f, Gravity.CENTER).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { L.addLR(it, 48f, 48f, 414f) }
-        val pv = LineProg(context, tint(.15f, H_IVORY), H_GOLD, L.zf(3f), L.zf(3f)).also { L.add(it, 48f, 446f, 316f, 10f) }
+        sub = L.t("", Style.kr(context, 300), 13f, tint(.65f, H_IVORY), 0f, Gravity.CENTER).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { L.addLR(it, 48f, 48f, 393f) }
+        val pv = LineProg(context, tint(.2f, H_IVORY), H_GOLD, L.zf(1f), L.zf(2f)).also { L.add(it, 48f, 438f, 316f, 10f) }
         prog = { pv.p = it }
-        t0 = L.t("", Style.jost(context, 400), 10f, tint(.6f, H_IVORY), .05f).also { L.add(it, 48f, 466f) }
-        t1 = L.t("", Style.jost(context, 400), 10f, tint(.6f, H_IVORY), .05f, Gravity.END).also { L.add(it, 304f, 466f, 60f) }
+        t0 = L.t("", Style.jost(context, 400), 11f, tint(.6f, H_IVORY), .05f).also { L.add(it, 48f, 455f) }
+        t1 = L.t("", Style.jost(context, 400), 11f, tint(.6f, H_IVORY), .05f, Gravity.END).also { L.add(it, 304f, 455f, 60f) }
         fun cb(kind: Int, size: Float) = FrameLayout(context).apply {
             background = shape(0xFF111111.toInt(), tint(.7f, H_GOLD), L.z(.75f).coerceAtLeast(1), oval = true)
             val g = Glyph(context, kind, H_IVORY, if (size > 60f) 2f else 1.6f); addView(g, LayoutParams(-1, -1).apply { val m = L.z(size * .32f); setMargins(m, m, m, m) }); if (kind == 2) play = g
         }
-        val prev = cb(0, 52f); val pl = cb(2, 64f); val next = cb(3, 52f)
-        L.add(tap(prev) { doPrev() }, 92f, 542f, 52f, 52f); L.add(tap(pl) { doPlay() }, 174f, 536f, 64f, 64f); L.add(tap(next) { doNext() }, 268f, 542f, 52f, 52f)
-        volRow(L, 24f, 600f, 364f, VolBar.TICKS, H_GOLD, tint(.25f, H_IVORY), tint(.7f, H_IVORY))
-        out = L.t("", Style.kr(context, 400), 12f, tint(.85f, H_IVORY), 0f, Gravity.CENTER).apply { background = shape(stroke = tint(.6f, H_GOLD), strokePx = L.z(.75f).coerceAtLeast(1)); maxLines = 1 }
-        L.add(tap(out!!) { doOutput() }, 24f, 664f, 180f, 44f)
-        val send = L.t("보내기 ›", Style.kr(context, 400), 12f, tint(.85f, H_IVORY), 0f, Gravity.CENTER).apply { background = shape(stroke = tint(.6f, H_GOLD), strokePx = L.z(.75f).coerceAtLeast(1)) }
-        L.add(tap(send) { doSend() }, 216f, 664f, 172f, 44f)
-        nowViews += listOf(send, aw, tw, sub!!, pv, t0!!, t1!!, prev, pl, next, out!!)
+        val prev = cb(0, 52f); val pl = cb(2, 72f); val next = cb(3, 52f)
+        L.add(tap(prev) { doPrev() }, 92f, 547f, 52f, 52f); L.add(tap(pl) { doPlay() }, 170f, 537f, 72f, 72f); L.add(tap(next) { doNext() }, 268f, 547f, 52f, 52f)
+        volRow(L, 48f, 364f, 641f, VolBar.TICKS, H_GOLD, tint(.25f, H_IVORY), tint(.6f, H_IVORY), H_GOLD)
+        out = L.t("", Style.kr(context, 400), 14f, tint(.85f, H_IVORY), 0f, Gravity.CENTER).apply { background = shape(stroke = tint(.6f, H_GOLD), strokePx = L.z(.75f).coerceAtLeast(1)); maxLines = 1 }
+        L.add(tap(out!!) { doOutput() }, 24f, 681f, 364f, 44f)
+        nowViews += listOf(aw, tw, sub!!, pv, t0!!, t1!!, prev, pl, next, out!!)
         // 집: Apple TV · Marantz
         fun hrow(top: Float, isAtv: Boolean) {
-            val r = FrameLayout(context); L.addLR(r, 24f, 24f, top, 56f)
-            val R1 = Lay(context, r, L.w - L.x(48f), L.z(56f), 364f, 56f)
+            val r = FrameLayout(context); L.addLR(r, 24f, 24f, top, 48f)
+            val R1 = Lay(context, r, L.w - L.x(48f), L.z(48f), 364f, 48f)
             r.addView(View(context).apply { setBackgroundColor(tint(.2f, H_GOLD)) }, LayoutParams(-1, 1))
-            val nm = R1.t(if (isAtv) "Apple TV" else "Marantz", Style.jost(context, 400), 15f, H_IVORY, .02f).also { R1.add(it, 0f, 18f) }
-            val st = R1.t("", Style.kr(context, 300), 12.5f, tint(.6f, H_IVORY)).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { R1.add(it, 116f, 20f, 170f) }
+            val nm = R1.t(if (isAtv) "Apple TV" else "Marantz", Style.jost(context, 400), 15f, H_IVORY, .02f).also { R1.add(it, 0f, 13f) }
+            val st = R1.t("", Style.kr(context, 300), 12.5f, tint(.6f, H_IVORY)).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { R1.add(it, 116f, 15f, 170f) }
             val b = R1.t("켜기", Style.kr(context, 400), 12f, H_GOLD, 0f, Gravity.CENTER).apply { background = shape(stroke = tint(.6f, H_GOLD), strokePx = R1.z(.75f).coerceAtLeast(1)) }
-            R1.add(tap(b) { if (isAtv) doAtv() else doMz() }, 292f, 6f, 72f, 44f)
+            R1.add(tap(b) { if (isAtv) doAtv() else doMz() }, 292f, 2f, 72f, 44f)
             if (isAtv) { atvName = nm; atvSub = st; atvBtn = b } else { mzName = nm; mzState = st; mzBtn = b }
             houseViews += r
         }
-        hrow(724f, true); hrow(780f, false)
+        hrow(740f, true); hrow(788f, false)
         val q = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         q.addView(L.t("À LA MAISON", Style.jost(context, 400), 10f, H_GOLD, .3f, Gravity.CENTER))
         quietTitle = L.t("", Style.kr(context, 400), 15f, tint(.9f, H_IVORY), 0f, Gravity.CENTER); q.addView(quietTitle!!, LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(8f) })
         val qb = hRow(); quietButtons(qb) { pad(L.t(it, Style.kr(context, 400), 12.5f, H_GOLD), 14f).apply { background = shape(stroke = tint(.6f, H_GOLD), strokePx = L.z(.75f).coerceAtLeast(1)) } }
         q.addView(qb, LinearLayout.LayoutParams(-2, L.z(44f)).apply { topMargin = L.z(14f) })
-        L.addLR(q, 28f, 28f, 732f); quietBox = q
+        L.addLR(q, 28f, 28f, 741f); quietBox = q
         val e = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         e.addView(L.t("GUICHET", Style.jost(context, 400), 10f, H_GOLD, .35f, Gravity.CENTER))
         e.addView(L.t("—", Style.jost(context, 200), 44f, H_IVORY, 0f, Gravity.CENTER), LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(8f) })
@@ -736,38 +832,35 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         L.add(av, 56f, 108f, 300f, 300f)
         title = L.t("", Fonts.serif(context), 20f, V_INK, .02f, Gravity.CENTER).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; elevation = L.zf(11f) }.also { L.addLR(it, 56f, 56f, 418f) }
         sub = L.t("", Style.kr(context, 300), 13f, tint(.7f, V_INK), 0f, Gravity.CENTER).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; elevation = L.zf(11f) }.also { L.addLR(it, 56f, 56f, 446f) }
-        val pv = LineProg(context, tint(.35f, V_IVORY), V_IVORY, L.zf(1f), L.zf(1.5f), knobR = L.zf(4f), knobRing = V_NAVY).also { L.addLR(it, 36f, 36f, 500f, 14f) }
+        val pv = LineProg(context, tint(.35f, V_IVORY), V_IVORY, L.zf(1f), L.zf(2f), knobR = L.zf(4f), knobRing = V_NAVY).also { L.addLR(it, 36f, 36f, 502f, 14f) }
         prog = { pv.p = it }
-        t0 = L.t("", Style.jost(context, 400), 10f, tint(.7f, V_IVORY), .05f).also { L.add(it, 40f, 518f) }
-        t1 = L.t("", Style.jost(context, 400), 10f, tint(.7f, V_IVORY), .05f, Gravity.END).also { L.add(it, 312f, 518f, 60f) }
+        t0 = L.t("", Style.jost(context, 400), 11f, tint(.7f, V_IVORY), .05f).also { L.add(it, 40f, 515f) }
+        t1 = L.t("", Style.jost(context, 400), 11f, tint(.7f, V_IVORY), .05f, Gravity.END).also { L.add(it, 312f, 515f, 60f) }
         fun ib(kind: Int, size: Float) = FrameLayout(context).apply {
             background = shape(V_IVORY, oval = true); elevation = L.zf(3f)
             val g = Glyph(context, kind, V_INK, if (size > 60f) 2.2f else 1.8f, fill = kind != 2); addView(g, LayoutParams(-1, -1).apply { val m = L.z(size * .32f); setMargins(m, m, m, m) }); if (kind == 2) play = g
         }
-        val prev = ib(0, 52f); val pl = ib(2, 64f); val next = ib(3, 52f)
-        L.add(tap(prev) { doPrev() }, 92f, 548f, 52f, 52f); L.add(tap(pl) { doPlay() }, 174f, 542f, 64f, 64f); L.add(tap(next) { doNext() }, 268f, 548f, 52f, 52f)
-        volRow(L, 40f, 608f, 332f, VolBar.LINE_DOT, V_IVORY, tint(.3f, V_IVORY), tint(.8f, V_IVORY))
-        out = L.t("", Style.kr(context, 400), 12f, tint(.8f, V_IVORY), 0f, Gravity.START or Gravity.CENTER_VERTICAL).apply { maxLines = 1 }
-        L.add(tap(out!!) { doOutput() }, 40f, 650f, 220f, 44f)
-        val send = L.t("보내기 ›", Style.kr(context, 400), 12f, V_IVORY, 0f, Gravity.END or Gravity.CENTER_VERTICAL)
-        L.add(tap(send) { doSend() }, 272f, 650f, 100f, 44f)
-        nowViews += listOf(send, title!!, sub!!, pv, t0!!, t1!!, prev, pl, next, out!!)
+        val prev = ib(0, 52f); val pl = ib(2, 72f); val next = ib(3, 52f)
+        L.add(tap(prev) { doPrev() }, 92f, 548f, 52f, 52f); L.add(tap(pl) { doPlay() }, 170f, 538f, 72f, 72f); L.add(tap(next) { doNext() }, 268f, 548f, 52f, 52f)
+        volRow(L, 40f, 372f, 642f, VolBar.LINE_DOT, V_IVORY, tint(.35f, V_IVORY), tint(.7f, V_IVORY), tint(.7f, V_IVORY))
+        val sr = soundLine(L, 40f, 372f, 682f, 14f, tint(.85f, V_IVORY), V_IVORY, "바꾸기 ›", tint(.35f, V_IVORY))
+        nowViews += listOf(sr, title!!, sub!!, pv, t0!!, t1!!, prev, pl, next)
         fun vrow(top: Float, isAtv: Boolean) {
-            val r = FrameLayout(context).apply { setBackgroundColor(tint(.92f, V_IVORY)) }; L.addLR(r, 40f, 40f, top, 48f)
-            val R1 = Lay(context, r, L.w - L.x(80f), L.z(48f), 332f, 48f)
-            val nm = R1.t(if (isAtv) "Apple TV" else "Marantz", Fonts.serif(context), 15f, V_INK, .02f).also { R1.add(it, 16f, 14f) }
-            val st = R1.t("", Style.kr(context, 300), 12f, tint(.7f, V_INK)).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { R1.add(it, 116f, 16f, 136f) }
+            val r = FrameLayout(context).apply { setBackgroundColor(0xFFDCD5C6.toInt()) }; L.addLR(r, 40f, 40f, top, 44f)
+            val R1 = Lay(context, r, L.w - L.x(80f), L.z(44f), 332f, 44f)
+            val nm = R1.t(if (isAtv) "Apple TV" else "Marantz", Fonts.serif(context), 15f, V_INK, .02f).also { R1.add(it, 16f, 12f) }
+            val st = R1.t("", Style.kr(context, 300), 12f, tint(.7f, V_INK)).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { R1.add(it, 116f, 14f, 136f) }
             val b = R1.t("켜기", Style.kr(context, 400), 12f, V_IVORY, 0f, Gravity.CENTER).apply { setBackgroundColor(V_INK) }
-            R1.add(tap(b) { if (isAtv) doAtv() else doMz() }, 256f, 2f, 72f, 44f)
+            R1.add(tap(b) { if (isAtv) doAtv() else doMz() }, 260f, 0f, 72f, 44f)
             if (isAtv) { atvName = nm; atvSub = st; atvBtn = b } else { mzName = nm; mzState = st; mzBtn = b }
             houseViews += r
         }
-        vrow(712f, true); vrow(772f, false)
+        vrow(738f, true); vrow(790f, false)
         val q = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         quietTitle = L.t("", Style.kr(context, 400), 14f, V_IVORY, 0f, Gravity.CENTER); q.addView(quietTitle!!, LinearLayout.LayoutParams(-1, -2))
         val qb = hRow(); quietButtons(qb) { pad(L.t(it, Style.kr(context, 400), 12.5f, V_INK), 14f).apply { setBackgroundColor(V_IVORY) } }
         q.addView(qb, LinearLayout.LayoutParams(-2, L.z(44f)).apply { topMargin = L.z(14f) })
-        L.addLR(q, 28f, 28f, 720f); quietBox = q
+        L.addLR(q, 28f, 28f, 738f); quietBox = q
         val e = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; elevation = L.zf(12f) }
         e.addView(L.t("THE VOYAGE", Style.jost(context, 500), 11f, tint(.7f, V_IVORY), .45f, Gravity.CENTER))
         e.addView(L.t("Bon voyage.", Fonts.serifI(context), 28f, V_IVORY, 0f, Gravity.CENTER), LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(10f) })
@@ -792,9 +885,10 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         addView(View(context).apply { background = vgrad(Color.TRANSPARENT, Style.INK) }, LayoutParams(-1, L.y(120f)).apply { topMargin = L.w - L.y(112f) })
         val credit = L.t("", Style.jost(context, 400), 9f, Style.ivory(.5f), .3f, Gravity.END).also { L.addLR(it, 32f, 32f, 400f) }
         val l1 = L.t("NOW, ON THIS PHONE —", Style.jost(context, 400), 10f, Style.ivory(.85f), .3f).also { L.add(it, 32f, 424f) }
+        this.l1 = l1
         title = L.t("", Style.jost(context, 300), 30f, Style.IVORY).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { L.addLR(it, 32f, 32f, 446f) }
         sub = L.t("", Style.kr(context, 300), 13f, Style.ivory(.75f)).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { L.addLR(it, 32f, 32f, 490f) }
-        val pv = LineProg(context, Style.ivory(.2f), Style.IVORY, L.zf(1f), L.zf(1f)).also { L.addLR(it, 32f, 32f, 514f, 4f) }
+        val pv = LineProg(context, Style.ivory(.2f), Style.IVORY, L.zf(1f), L.zf(2f)).also { L.addLR(it, 32f, 32f, 513f, 4f) }
         prog = { pv.p = it; credit.text = "PHOTOGRAPHIE — " + meta(MediaMetadata.METADATA_KEY_ALBUM).ifEmpty { appName() }.uppercase() }
         val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
         fun tb(s: String, go: () -> Unit) = L.t(s, Style.kr(context, 300), 15f, Style.ivory(.75f), .2f, Gravity.CENTER).also { row.addView(tap(it, go), LinearLayout.LayoutParams(0, -1, 1f)) }
@@ -802,17 +896,16 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         playText = tb("멈춤") { doPlay() }.apply { setTextColor(Style.IVORY); background = UnderLine(Style.IVORY, L.zf(1f), L.zf(14f)) }
         tb("다음") { doNext() }
         L.addLR(row, 32f, 32f, 544f, 56f)
-        volRow(L, 32f, 610f, 348f, VolBar.DOTS, Style.IVORY, Style.ivory(.25f), Style.ivory(.7f), 150f)
-        volLbl!!.text = "PHONE"
-        out = L.t("", Style.kr(context, 300), 12.5f, Style.ivory(.75f)).also { L.add(tap(it) { doOutput() }, 32f, 654f, WRAP, 44f); it.gravity = Gravity.CENTER_VERTICAL }
-        val send = L.t("보내기 →", Style.kr(context, 400), 12.5f, Style.IVORY, 0f, Gravity.CENTER).apply { background = UnderLine(Style.ivory(.6f), L.zf(1f), 0f) }
-        L.add(tap(send) { doSend() }, 300f, 654f, 80f, 44f)
-        nowViews += listOf(send, art!!, credit, l1, title!!, sub!!, pv, row, out!!)
-        val hs = FrameLayout(context); L.addLR(hs, 32f, 32f, 712f, 160f)
-        val H = Lay(context, hs, L.w - L.x(64f), L.z(160f), 348f, 160f)
+        volPrefix = "VOLUME · "
+        volRow(L, 32f, 380f, 630f, VolBar.DOTS, Style.IVORY, Style.ivory(.25f), Style.ivory(.75f), Style.ivory(.75f))
+        volLbl!!.letterSpacing = .15f
+        val sr = soundLine(L, 32f, 380f, 670f, 14f, Style.ivory(.8f), Style.IVORY, "바꾸기 →", Style.ivory(.25f))
+        nowViews += listOf(sr, art!!, credit, l1, title!!, sub!!, pv, row)
+        val hs = FrameLayout(context); L.addLR(hs, 32f, 32f, 718f, 124f)
+        val H = Lay(context, hs, L.w - L.x(64f), L.z(124f), 348f, 124f)
         H.add(H.t("ELSEWHERE IN THE HOUSE —", Style.jost(context, 400), 10f, Style.ivory(.85f), .3f), 0f, 0f)
         fun crow(top: Float, label: String, act: String, go: () -> Unit): Pair<TextView, TextView> {
-            val r = FrameLayout(context); H.addLR(r, 0f, 0f, top, 52f)
+            val r = FrameLayout(context); H.addLR(r, 0f, 0f, top, 48f)
             r.addView(View(context).apply { setBackgroundColor(Style.ivory(.15f)) }, LayoutParams(-1, 1))
             val t = H.t(label, Style.kr(context, 300), 14f, Style.ivory(.9f)).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
             r.addView(t, LayoutParams(H.z(260f), -2, Gravity.CENTER_VERTICAL))
@@ -820,8 +913,8 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
             r.addView(tap(b, go), LayoutParams(H.z(64f), H.z(44f), Gravity.END or Gravity.CENTER_VERTICAL))
             houseViews += r; return t to b
         }
-        crow(20f, "Apple TV", "재생") { doAtv() }.let { atvName = it.first; atvBtn = it.second }
-        crow(72f, "Marantz", "켜기 →") { doMz() }.let { mzName = it.first; mzBtn = it.second }
+        crow(22f, "Apple TV", "재생") { doAtv() }.let { atvName = it.first; atvBtn = it.second }
+        crow(70f, "Marantz", "켜기 →") { doMz() }.let { mzName = it.first; mzBtn = it.second }
         val q = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         quietTitle = H.t("", Style.kr(context, 400), 15f, Style.ivory(.9f), 0f, Gravity.CENTER); q.addView(quietTitle!!, LinearLayout.LayoutParams(-1, -2))
         val qb = hRow(); quietButtons(qb) { pad(H.t(it, Style.kr(context, 400), 12.5f, Style.IVORY), 4f).apply { background = UnderLine(Style.ivory(.6f), H.zf(1f), H.zf(8f)) } }
@@ -937,6 +1030,12 @@ class DotLeader(ctx: Context, private val color: Int, private val r: Float) : Vi
 }
 
 /** LIBRARY: 접힌 종이 귀퉁이 */
+/** 글꼴 바꾸기 + 크기 배수 (LIBRARY 'Volume' 이탤릭) */
+class CustomFont(private val tf: android.graphics.Typeface, private val scale: Float) : android.text.style.MetricAffectingSpan() {
+    override fun updateDrawState(p: android.text.TextPaint) { p.typeface = tf; p.textSize *= scale; p.letterSpacing = 0f }
+    override fun updateMeasureState(p: android.text.TextPaint) { p.typeface = tf; p.textSize *= scale; p.letterSpacing = 0f }
+}
+
 class EarView(ctx: Context) : View(ctx) {
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     override fun onDraw(c: Canvas) {

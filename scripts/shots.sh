@@ -12,8 +12,10 @@ adb shell am start -n $A; sleep 8
 for t in 0 1 2 3 4; do
   adb shell am start -n $A --ei theme $t --ei page 0; sleep 4
   adb exec-out screencap -p > shots/t${t}_0_cover.png
-  adb shell am start -n $A --ei page 1; sleep 3
+  adb shell am start -n $A --ei page 1 --ei demo 1; sleep 4
   adb exec-out screencap -p > shots/t${t}_1_media.png
+  adb shell am start -n $A --ei page 1 --ei demo 2; sleep 3
+  adb exec-out screencap -p > shots/t${t}_1m_media.png
   adb shell am start -n $A --ei page 0 --ez drawer true; sleep 3
   adb exec-out screencap -p > shots/t${t}_2_drawer.png
   adb shell am start -n $A --ei page 0 --ez drawer true --ei folder 3; sleep 4
@@ -27,6 +29,12 @@ adb exec-out screencap -p > shots/s_settings.png
 adb shell input keyevent KEYCODE_BACK; sleep 1
 adb shell am start -n $A --ei page 0 --es sheet display; sleep 4
 adb exec-out screencap -p > shots/s_display.png
+adb shell input keyevent KEYCODE_BACK; sleep 1
+adb shell am start -n $A --ei theme 2 --ei page 1 --ei demo 2 --es sheet sound; sleep 4
+adb exec-out screencap -p > shots/s_sound.png
+adb shell input keyevent KEYCODE_BACK; sleep 1
+adb shell am start -n $A --ei page 0 --es sheet dial; sleep 4
+adb exec-out screencap -p > shots/s_dial.png
 adb shell input keyevent KEYCODE_BACK; sleep 1
 adb shell am start -n $A --ei page 0 --es sheet collection; sleep 4
 adb exec-out screencap -p > shots/s_collection.png

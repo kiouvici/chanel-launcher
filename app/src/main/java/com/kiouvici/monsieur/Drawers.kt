@@ -120,7 +120,7 @@ internal fun MainActivity.themeBox() {
     val footC = if (lightBox) tint(.75f, 0xFF8A7E6E.toInt()) else Style.ivory(.65f)
     folio.setTextColor(footC); settingsBtn.setTextColor(footC)
     // 하단 글자 12sp (MONSIEUR는 그대로 9sp)
-    folio.textSize = if (t == Look.MONSIEUR) 9f else 11f; settingsBtn.textSize = if (t == Look.MONSIEUR) 9f else 11f
+    folio.textSize = 12f; settingsBtn.textSize = 12f
     searchGlyphColor(if (lightBox) 0xFF5E4522.toInt() else GOLD_LT)
     col.requestLayout(); box.requestLayout()
     updateThemeClock()
@@ -161,7 +161,7 @@ internal fun MainActivity.buildStage() {
                 vertical = look.libOrder == 0; rows = maxOf(15, (folders.size + 1) / 2)
             }
             ms.measureFor(W, H)
-            val needH = ((ms.rows * 44f + 14f) * ms.u).roundToInt()
+            val needH = ((ms.rows * 44f + 18f) * ms.u).roundToInt()
             stageIn.addView(ms, FrameLayout.LayoutParams(W, maxOf(H, needH)))
             var waiting = 0
             folders.forEachIndexed { i, id ->
@@ -756,7 +756,7 @@ internal fun MainActivity.showCollection() {
     fun applySel() {
         if (sel == look.theme) return
         prevTheme = look.theme
-        applyTheme(sel); place()
+        applyTheme(sel); place(); collChanged = true
         undoMsg.text = "${Look.NAMES[sel]}로 바꿨습니다"
         undo.visibility = View.VISIBLE
         undo.removeCallbacks(hideUndo); undo.postDelayed(hideUndo, 4000)
@@ -791,5 +791,7 @@ internal fun MainActivity.showCollection() {
 internal fun MainActivity.hideCollection(): Boolean {
     val c = collection ?: return false
     root.removeView(c); collection = null; collPlace = null
+    // 테마를 바꿨으면 닫을 때 서랍도 닫고 홈(표지)으로 — 새 표지를 바로 보이게
+    if (collChanged) { collChanged = false; closeAllNow(); goPage(0, false) }
     return true
 }

@@ -190,7 +190,7 @@ class ThemeCover(ctx: Context, private val look: Look) : FrameLayout(ctx) {
         val monE = arrayOf("JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER")[cal.get(Calendar.MONTH)]
         val day = cal.get(Calendar.DAY_OF_MONTH); val mon = cal.get(Calendar.MONTH) + 1
         val wx = weatherLine
-        lDate?.text = "$dayE, $monE $day"
+        lDate?.text = "$dayE, $day $monE"
         lSent?.text = Words.sentence(hh, mm, weatherTemp, weatherState, wx)
         lTime?.text = "— %02d : %02d —".format(hh, mm)
         hDial?.set(hh, mm, day, isShown)
