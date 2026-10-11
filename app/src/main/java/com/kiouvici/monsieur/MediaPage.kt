@@ -564,8 +564,8 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         val card = FrameLayout(context).apply {
             background = Style.tile(context, Style.PAPER, 256f); foreground = InsetBox(Style.ink(.45f), L.zf(.75f), L.zf(4f)); elevation = L.zf(8f)
         }
-        L.addLR(card, 16f, 16f, 712f, 160f)
-        val CL = Lay(context, card, L.w - L.x(32f), L.z(160f), 380f, 160f)
+        L.addLR(card, 16f, 16f, 704f, 152f)
+        val CL = Lay(context, card, L.w - L.x(32f), L.z(152f), 380f, 152f)
         CL.add(CL.t("À LA MAISON", Style.jost(context, 400), 10f, Style.GILT, .3f), 16f, 14f)
         fun mrow(top: Float, isAtv: Boolean) {
             val r = FrameLayout(context); CL.addLR(r, 16f, 16f, top, 58f)
@@ -580,7 +580,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
             if (isAtv) { atvName = nm; atvSub = st; atvBtn = b } else { mzName = nm; mzState = st; mzBtn = b }
             houseViews += r
         }
-        mrow(38f, true); mrow(98f, false)
+        mrow(34f, true); mrow(92f, false)
         // 비었을 때 · 조용할 때
         val q = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         val qt = CL.t("집은 조용합니다", Style.kr(context, 400), 15f, Style.INK, 0f, Gravity.CENTER); quietTitle = qt

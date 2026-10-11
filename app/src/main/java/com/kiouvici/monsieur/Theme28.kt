@@ -265,8 +265,8 @@ class Manuscript(ctx: Context) : View(ctx) {
     private val tp = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
 
     fun measureFor(w: Int, h: Int) {
-        u = minOf(w / 384f, h / (rows * 44f + 8f))
-        ox = (w - 380 * u) / 2f; oy = 4 * u
+        u = minOf(w / 390f, h / (rows * 44f + 14f))
+        ox = (w - 380 * u) / 2f; oy = 5 * u
     }
     /** 폴더 i의 줄·쪽(0 왼쪽 1 오른쪽) */
     fun slot(i: Int): Pair<Int, Int> = if (vertical) (i % rows) to (i / rows) else (i / 2) to (i % 2)

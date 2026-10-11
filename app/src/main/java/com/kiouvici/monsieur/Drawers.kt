@@ -161,7 +161,7 @@ internal fun MainActivity.buildStage() {
                 vertical = look.libOrder == 0; rows = maxOf(15, (folders.size + 1) / 2)
             }
             ms.measureFor(W, H)
-            val needH = ((ms.rows * 44f + 8f) * ms.u).roundToInt()
+            val needH = ((ms.rows * 44f + 14f) * ms.u).roundToInt()
             stageIn.addView(ms, FrameLayout.LayoutParams(W, maxOf(H, needH)))
             var waiting = 0
             folders.forEachIndexed { i, id ->
@@ -254,8 +254,7 @@ internal fun MainActivity.buildStage() {
     stageIn.requestLayout()
     val n = folders.size
     val un = repo.unassigned().size
-    folio.text = folioBase.format(if (n == 1) "1 FOLDER" else "$n FOLDERS") +
-        (if (un > 0) " · UNSORTED $un" else "")
+    folio.text = if (un > 0) "$n FOLDERS · UNSORTED $un" else folioBase.format(if (n == 1) "1 FOLDER" else "$n FOLDERS")
 }
 
 /** 폴더 보기 하나에 공통 동작: 누르면 열기 · 길게 누르면 메뉴 · 앱을 끌어 놓으면 옮기기 */
@@ -531,6 +530,7 @@ class BookSpread(private val ctx: Context) : android.graphics.drawable.Drawable(
 /** ③ HOUR 열린 폴더 (H3): 세라믹 판 + 창 4열, 넘치면 판 안에서 스크롤, 각진 CLOSE */
 internal fun MainActivity.showHourOpen(id: String) {
     hideThemeOpen()
+    footVisible(false)
     cardFolder = id
     val list = repo.appsIn(id)
     val layer = FrameLayout(this).apply { setBackgroundColor(Color.argb(150, 0, 0, 0)); elevation = dpf(24f); isClickable = true; setOnClickListener { hideCard() } }
@@ -564,6 +564,7 @@ internal fun MainActivity.showHourOpen(id: String) {
 /** ④ VOYAGE 열린 폴더: 엽서 카드 — 우표 칸에 번호, 앱 5열, 남색 CLOSE */
 internal fun MainActivity.showVoyageOpen(id: String) {
     hideThemeOpen()
+    footVisible(false)
     cardFolder = id
     val list = repo.appsIn(id)
     val no = repo.folders().indexOf(id) + 1
@@ -601,6 +602,7 @@ internal fun MainActivity.showVoyageOpen(id: String) {
 /** ⑤ CAPTION 열린 폴더: 사진 위에 제목과 앱 목록 2열 (한 화면, 넘치면 목록만 스크롤) */
 internal fun MainActivity.showCaptionOpen(id: String) {
     hideThemeOpen()
+    footVisible(false)
     cardFolder = id
     val layer = FrameLayout(this).apply { elevation = dpf(24f); isClickable = true }
     layer.addView(View(this).apply { background = themeCover.photoDrawable() }, FrameLayout.LayoutParams(-1, -1))
@@ -629,6 +631,7 @@ internal fun MainActivity.showCaptionOpen(id: String) {
 /** ② LIBRARY 열린 폴더: 펼친 책 두 쪽 — 왼쪽 VOL·제목·앱 수 + 앱 2열×4, 오른쪽 앱 2열×6 (한 번에 20개), 넘기기, 빨간 리본 CLOSE */
 internal fun MainActivity.showLibraryOpen(id: String, page: Int = 0) {
     hideThemeOpen()
+    footVisible(false)
     cardFolder = id
     val list = repo.appsIn(id)
     val pages = maxOf(1, (list.size + 19) / 20)
@@ -691,6 +694,7 @@ internal fun MainActivity.showLibraryOpen(id: String, page: Int = 0) {
 internal fun MainActivity.hideThemeOpen(): Boolean {
     val l = themeOpen ?: return false
     root.removeView(l); themeOpen = null
+    footVisible(true)
     return true
 }
 

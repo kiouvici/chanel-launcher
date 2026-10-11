@@ -200,7 +200,7 @@ class ThemeCover(ctx: Context, private val look: Look) : FrameLayout(ctx) {
         hWx?.text = wx
         vTime?.text = "%02d:%02d".format(hh, mm)
         vWx?.text = wx
-        cTime?.text = "%02d:%02d, %s %d · %d".format(hh, mm, dayE.lowercase().replaceFirstChar { it.uppercase() }, mon, day)
+        cTime?.text = "%02d:%02d, %s, %d %s".format(hh, mm, dayE.lowercase().replaceFirstChar { it.uppercase() }, day, monE.lowercase().replaceFirstChar { it.uppercase() })
         cWx?.text = wx
     }
 }

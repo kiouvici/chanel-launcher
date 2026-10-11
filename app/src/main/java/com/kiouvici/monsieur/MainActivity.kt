@@ -1429,6 +1429,11 @@ class MainActivity : ComponentActivity(), MediaHost {
         }
     }
 
+    /** 열린 폴더가 떠 있는 동안 서랍의 검색줄·하단 문구를 숨김 (리본·닫기와 겹치지 않게) */
+    internal fun footVisible(on: Boolean) {
+        listOf(search.parent as? View, folio.parent?.parent as? View).forEach { it?.visibility = if (on) View.VISIBLE else View.INVISIBLE }
+    }
+
     internal fun hideKeyboardFor(v: View) { (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(v.windowToken, 0) }
 
     // ───────── THE VOYAGE 여행 사진 (최대 6장 · 앱 안에 복사) ─────────
