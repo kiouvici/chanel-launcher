@@ -208,7 +208,8 @@ class MainActivity : ComponentActivity() {
 
     private fun buildPages() {
         pager = Pager()
-        root.addView(pager, FrameLayout.LayoutParams(-1, -1))
+        // 가안: 화면 맨 아래 검정 띠(80dp)는 리본과 페이지 선 자리 — HA 화면이 가려지지 않음
+        root.addView(pager, FrameLayout.LayoutParams(-1, -1).apply { bottomMargin = dp(80f) })
         cover = buildCover()
         web = makeWeb(HOME_URL, true)
         webHouse = makeWeb(HOUSE_URL, false)
@@ -221,7 +222,7 @@ class MainActivity : ComponentActivity() {
                 LinearLayout.LayoutParams(dp(16f), dp(1f)).apply { if (i > 0) leftMargin = dp(8f) })
         }
         root.addView(indicator, FrameLayout.LayoutParams(-2, dp(9f), Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM).apply {
-            bottomMargin = dp(124f)
+            bottomMargin = dp(66f)
         })
         root.post { layoutPages(0f) }
     }
@@ -385,8 +386,8 @@ class MainActivity : ComponentActivity() {
         }
         tab.addView(rib, FrameLayout.LayoutParams(dp(26f), dp(58f), Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM))
         tab.contentDescription = "앱 상자 열기"
-        root.addView(tab, FrameLayout.LayoutParams(dp(120f), dp(72f), Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM).apply {
-            bottomMargin = dp(40f)
+        root.addView(tab, FrameLayout.LayoutParams(dp(120f), dp(62f), Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM).apply {
+            bottomMargin = dp(4f)
         })
         tab.setOnTouchListener(DragOpen(fromOpen = false))
     }
