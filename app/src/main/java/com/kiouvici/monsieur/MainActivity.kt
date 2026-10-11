@@ -47,14 +47,41 @@ import androidx.activity.OnBackPressedCallback
 class MainActivity : ComponentActivity() {
 
     companion object {
-        const val HOME_URL = "https://kiouvici.synology.me:8123/dashboard-chanel/0"
+        const val HOME_URL = "https://kiouvici.synology.me:8123/dashboard-chanel/home"
+        const val HOUSE_URL = "https://kiouvici.synology.me:8123/dashboard-chanel/house"
+
+        /** HA 위쪽 메뉴줄 숨기기 — 홈·집 화면에서만 (하위 화면은 뒤로 가기 화살표가 필요해 그대로 둠) */
+        const val HIDE_HEADER_JS = """
+(function(){
+ if(window.__mnsHide) return; window.__mnsHide=1;
+ function q(r,s){return r&&r.shadowRoot&&r.shadowRoot.querySelector(s);}
+ function run(){
+  try{
+   var root=q(q(q(document.querySelector('home-assistant'),'home-assistant-main'),'ha-panel-lovelace'),'hui-root');
+   if(!root) return; var sr=root.shadowRoot;
+   var p=location.pathname, top=/\/dashboard-chanel\/(home|house|0|1)\/?$/.test(p);
+   var st=sr.getElementById('mnsHide');
+   if(top&&!st){st=document.createElement('style');st.id='mnsHide';
+     st.textContent='.header{display:none!important}#view{padding-top:0!important;min-height:100vh!important}';sr.appendChild(st);}
+   if(!top&&st) st.remove();
+  }catch(e){}
+ }
+ run(); setInterval(run,400);
+})();
+"""
         val EASE = PathInterpolator(.32f, .72f, 0f, 1f)
     }
 
     private lateinit var repo: AppRepo
     private lateinit var root: FrameLayout
     private lateinit var web: WebView
-    private lateinit var lidLayer: FrameLayout
+    private lateinit var webHouse: WebView
+    private lateinit var pager: FrameLayout
+    private lateinit var cover: FrameLayout
+    private lateinit var pages: List<View>
+    private lateinit var indicator: LinearLayout
+    private lateinit var dateText: TextView
+    private lateinit var progressTrack: FrameLayout
     private lateinit var progress: View
     private lateinit var failBox: LinearLayout
     private lateinit var dim: View
@@ -75,6 +102,7 @@ class MainActivity : ComponentActivity() {
     private var reduceMotion = false
     private var pageLoaded = false
     private var cardFolder: String? = null
+    private var cur = 0               // 0 표지 · 1 HA 홈 · 2 HA 집
 
     // ───────── 시작 ─────────
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -84,8 +112,7 @@ class MainActivity : ComponentActivity() {
         root = FrameLayout(this).apply { setBackgroundColor(Style.INK) }
         setContentView(root)
 
-        buildWeb()
-        buildLid()
+        buildPages()
         dim = View(this).apply { setBackgroundColor(Color.BLACK); alpha = 0f; visibility = View.GONE; setOnClickListener { closeAll() } }
         root.addView(dim, FrameLayout.LayoutParams(-1, -1))
         buildTab()
@@ -99,6 +126,12 @@ class MainActivity : ComponentActivity() {
             setOpen(0f)
         }
 
+        // 화면이 꺼지면 표지로 돌려 둠 → 켤 때 항상 표지부터. 날짜는 매 분 확인
+        registerReceiver(sysRx, android.content.IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_TIME_TICK)
+            addAction(Intent.ACTION_DATE_CHANGED); addAction(Intent.ACTION_TIMEZONE_CHANGED)
+        })
+
         BadgeService.onChange = { runOnUiThread { refreshGrid(); cardFolder?.let { refreshCardApps() } } }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -106,100 +139,238 @@ class MainActivity : ComponentActivity() {
                 when {
                     card.visibility == View.VISIBLE -> hideCard()
                     openP > 0f -> animateOpen(0f)
-                    web.canGoBack() -> web.goBack()
+                    cur == 1 && web.canGoBack() -> web.goBack()
+                    cur == 2 && webHouse.canGoBack() -> webHouse.goBack()
+                    cur != 0 -> goPage(0)
                 }
             }
         })
     }
 
+    private val sysRx = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: android.content.Context?, i: Intent?) {
+            when (i?.action) {
+                Intent.ACTION_SCREEN_OFF -> { closeAllNow(); goPage(0, false) }
+                else -> updateDate()
+            }
+        }
+    }
+
+    private fun closeAllNow() { hideCard(); if (::search.isInitialized) search.setText(""); anim?.cancel(); setOpen(0f) }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         // 홈 버튼: 열린 것만 닫는다 (서랍은 끌어올리기로만 연다 — 성훈님 결정)
-        if (Intent.ACTION_MAIN == intent.action) closeAll()
+        if (Intent.ACTION_MAIN == intent.action) {
+            val wasClosed = openP == 0f && card.visibility != View.VISIBLE
+            closeAll()
+            if (wasClosed) goPage(0) // 홈 버튼 = 표지
+        }
     }
 
     override fun onResume() {
         super.onResume()
         repo.reload()
         refreshGrid()
+        updateDate()
         if (!pageLoaded) web.reload()
     }
 
-    // ───────── HA 화면 ─────────
+    // ───────── 세 화면: 표지 · HA 홈 · HA 집 (옆으로 밀어 돌아감) ─────────
     @SuppressLint("SetJavaScriptEnabled")
-    private fun buildWeb() {
-        web = WebView(this).apply {
-            setBackgroundColor(Style.INK)
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            settings.databaseEnabled = true
-            settings.mediaPlaybackRequiresUserGesture = false
-            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-            CookieManager.getInstance().setAcceptCookie(true)
-            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-            webChromeClient = object : WebChromeClient() {
-                override fun onProgressChanged(view: WebView?, p: Int) { setProgress(p / 100f) }
-            }
-            webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView?, url: String?) {
-                    pageLoaded = true
-                    hideLid()
-                }
-                override fun onReceivedError(view: WebView?, req: WebResourceRequest?, err: WebResourceError?) {
-                    if (req?.isForMainFrame == true) { pageLoaded = false; showFail() }
-                }
-                override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
-                    handler?.cancel(); pageLoaded = false; showFail()
-                }
-            }
-            loadUrl(HOME_URL)
+    private fun makeWeb(url: String, isHome: Boolean): WebView = WebView(this).apply {
+        setBackgroundColor(Style.INK)
+        settings.javaScriptEnabled = true
+        settings.domStorageEnabled = true
+        settings.databaseEnabled = true
+        settings.mediaPlaybackRequiresUserGesture = false
+        settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+        CookieManager.getInstance().setAcceptCookie(true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+        webChromeClient = object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView?, p: Int) { if (isHome) setProgress(p / 100f) }
         }
-        root.addView(web, FrameLayout.LayoutParams(-1, -1))
+        webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView?, u: String?) {
+                view?.evaluateJavascript(HIDE_HEADER_JS, null)
+                if (isHome) { pageLoaded = true; hideProgress() }
+            }
+            override fun onReceivedError(view: WebView?, req: WebResourceRequest?, err: WebResourceError?) {
+                if (req?.isForMainFrame == true && isHome) { pageLoaded = false; showFail() }
+            }
+            override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
+                handler?.cancel(); if (isHome) { pageLoaded = false; showFail() }
+            }
+        }
+        loadUrl(url)
     }
 
-    // ───────── ① 첫 화면 (닫힌 상자 뚜껑) ─────────
-    private fun buildLid() {
-        lidLayer = FrameLayout(this).apply { setBackgroundColor(Style.INK); isClickable = true }
-        val lid = ImageView(this).apply {
-            setImageBitmap(Style.img(this@MainActivity, "lid.webp"))
-            scaleType = ImageView.ScaleType.CENTER_CROP
-        }
-        lidLayer.addView(lid, FrameLayout.LayoutParams(-1, dp(560f)).apply { topMargin = dp(64f) })
-        val wm = label("CHANEL", Style.jost(this, 300), 22f, Style.IVORY, .5f)
-        lidLayer.addView(wm, FrameLayout.LayoutParams(-1, -2).apply { topMargin = dp(64f + 150f) })
-        val ms = label("MONSIEUR", Style.jost(this, 400), 10f, Style.ivory(.6f), .3f)
-        lidLayer.addView(ms, FrameLayout.LayoutParams(-1, -2).apply { topMargin = dp(64f + 190f) })
+    private fun buildPages() {
+        pager = Pager()
+        root.addView(pager, FrameLayout.LayoutParams(-1, -1))
+        cover = buildCover()
+        web = makeWeb(HOME_URL, true)
+        webHouse = makeWeb(HOUSE_URL, false)
+        pages = listOf(cover, web, webHouse)
+        pages.forEach { pager.addView(it, FrameLayout.LayoutParams(-1, -1)) }
 
-        val track = FrameLayout(this).apply { setBackgroundColor(Style.gold(.2f)) }
+        indicator = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        repeat(3) { i ->
+            indicator.addView(View(this).apply { setBackgroundColor(Style.IVORY) },
+                LinearLayout.LayoutParams(dp(16f), dp(1f)).apply { if (i > 0) leftMargin = dp(8f) })
+        }
+        root.addView(indicator, FrameLayout.LayoutParams(-2, dp(9f), Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM).apply {
+            bottomMargin = dp(124f)
+        })
+        root.post { layoutPages(0f) }
+    }
+
+    /** 표지: 닫힌 상자 뚜껑 + CHANEL · MONSIEUR + 날짜 한 줄 (+ 뒤에서 HA를 준비할 때만 금선) */
+    private fun buildCover(): FrameLayout {
+        val c = FrameLayout(this).apply { setBackgroundColor(Style.INK) }
+        val w = resources.displayMetrics.widthPixels
+        val lidH = (w * 1.5f).toInt()
+        val top = dp(64f)
+        val lid = ImageView(this).apply {
+            setImageBitmap(Style.img(this@MainActivity, "lid.webp")); scaleType = ImageView.ScaleType.CENTER_CROP
+        }
+        c.addView(lid, FrameLayout.LayoutParams(-1, lidH).apply { topMargin = top })
+        c.addView(label("CHANEL", Style.jost(this, 300), 22f, Style.IVORY, .5f),
+            FrameLayout.LayoutParams(-1, -2).apply { topMargin = top + dp(150f) })
+        c.addView(label("MONSIEUR", Style.jost(this, 400), 10f, Style.ivory(.6f), .3f),
+            FrameLayout.LayoutParams(-1, -2).apply { topMargin = top + dp(190f) })
+        dateText = label("", Style.jost(this, 300), 11f, Style.ivory(.6f), .3f)
+        c.addView(dateText, FrameLayout.LayoutParams(-1, -2).apply { topMargin = top + lidH - dp(64f) })
+        updateDate()
+
+        progressTrack = FrameLayout(this).apply { setBackgroundColor(Style.gold(.2f)) }
         progress = View(this).apply { setBackgroundColor(Style.GOLD); pivotX = 0f; scaleX = 0f }
-        track.addView(progress, FrameLayout.LayoutParams(-1, -1))
-        lidLayer.addView(track, FrameLayout.LayoutParams(dp(220f), dp(1f)).apply {
-            gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(64f + 584f)
+        progressTrack.addView(progress, FrameLayout.LayoutParams(-1, -1))
+        c.addView(progressTrack, FrameLayout.LayoutParams(-1, dp(1f)).apply {
+            topMargin = top + lidH + dp(24f); leftMargin = dp(16f); rightMargin = dp(16f)
         })
 
-        failBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; visibility = View.GONE
-        }
+        failBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; visibility = View.GONE }
         failBox.addView(label("MAISON · 연결되지 않음", Style.kr(this, 300), 12f, Style.ivory(.7f), .05f))
         val retry = label("다시 연결", Style.kr(this, 400), 13f, Style.IVORY, .04f).apply {
             gravity = Gravity.CENTER
             background = GradientDrawable().apply { setStroke(dp(1f), Style.ivory(.8f)) }
-            setOnClickListener { failBox.visibility = View.GONE; setProgress(0f); web.loadUrl(HOME_URL) }
+            setOnClickListener {
+                failBox.visibility = View.GONE; progressTrack.alpha = 1f; progressTrack.visibility = View.VISIBLE
+                setProgress(0f); web.loadUrl(HOME_URL); webHouse.loadUrl(HOUSE_URL)
+            }
         }
-        failBox.addView(retry, LinearLayout.LayoutParams(dp(180f), dp(44f)).apply { topMargin = dp(14f) })
-        lidLayer.addView(failBox, FrameLayout.LayoutParams(-1, -2).apply { topMargin = dp(64f + 600f) })
-        root.addView(lidLayer, FrameLayout.LayoutParams(-1, -1))
+        failBox.addView(retry, LinearLayout.LayoutParams(dp(180f), dp(44f)).apply { topMargin = dp(10f) })
+        c.addView(failBox, FrameLayout.LayoutParams(-1, -2).apply { topMargin = top + lidH + dp(12f) })
+        return c
     }
 
-    private fun setProgress(p: Float) { progress.scaleX = p.coerceIn(0f, 1f) }
-    private fun hideLid() {
-        if (lidLayer.visibility != View.VISIBLE) return
-        lidLayer.animate().alpha(0f).setDuration(if (reduceMotion) 120 else 420).setInterpolator(EASE)
-            .withEndAction { lidLayer.visibility = View.GONE }.start()
+    private fun updateDate() {
+        if (!::dateText.isInitialized) return
+        val cal = java.util.Calendar.getInstance()
+        val days = arrayOf("DIMANCHE", "LUNDI", "MARDI", "MERCREDI", "JEUDI", "VENDREDI", "SAMEDI")
+        dateText.text = "%d · %d · %s".format(
+            cal.get(java.util.Calendar.DAY_OF_MONTH), cal.get(java.util.Calendar.MONTH) + 1,
+            days[cal.get(java.util.Calendar.DAY_OF_WEEK) - 1])
+    }
+
+    private fun setProgress(p: Float) { if (::progress.isInitialized) progress.scaleX = p.coerceIn(0f, 1f) }
+    private fun hideProgress() {
+        if (!::progressTrack.isInitialized || progressTrack.visibility != View.VISIBLE) return
+        progressTrack.animate().alpha(0f).setDuration(300).withEndAction { progressTrack.visibility = View.GONE }.start()
     }
     private fun showFail() {
-        lidLayer.animate().cancel(); lidLayer.alpha = 1f; lidLayer.visibility = View.VISIBLE
+        progressTrack.visibility = View.GONE
         failBox.visibility = View.VISIBLE
+        goPage(0, false)
+    }
+
+    /** 지금 화면(cur)과 끌고 있는 만큼(dx)으로 세 장의 위치를 정함. 끝에서 처음으로 돌아감 */
+    private fun layoutPages(dx: Float) {
+        val w = pager.width.toFloat().takeIf { it > 0 } ?: resources.displayMetrics.widthPixels.toFloat()
+        pages.forEachIndexed { i, v ->
+            val rel = when (i) {
+                cur -> 0
+                (cur + 1) % 3 -> 1
+                else -> -1
+            }
+            v.translationX = rel * w + dx
+            v.visibility = if (rel == 0 || (rel == 1 && dx < 0) || (rel == -1 && dx > 0)) View.VISIBLE else View.INVISIBLE
+        }
+        for (i in 0 until indicator.childCount) indicator.getChildAt(i).alpha = if (i == cur) 1f else .3f
+    }
+
+    private var pageAnim: ValueAnimator? = null
+    private fun goPage(target: Int, animate: Boolean = true, fromDx: Float = 0f) {
+        pageAnim?.cancel()
+        val w = pager.width.toFloat().takeIf { it > 0 } ?: resources.displayMetrics.widthPixels.toFloat()
+        val n = ((target % 3) + 3) % 3
+        if (!animate || n == cur && fromDx == 0f) { cur = n; layoutPages(0f); return }
+        val dir = when (n) { (cur + 1) % 3 -> -1f; cur -> 0f; else -> 1f }
+        if (reduceMotion) {
+            cur = n; layoutPages(0f)
+            pages[cur].alpha = 0f; pages[cur].animate().alpha(1f).setDuration(120).start(); return
+        }
+        pageAnim = ValueAnimator.ofFloat(fromDx, dir * w).apply {
+            duration = 360; interpolator = EASE
+            addUpdateListener { layoutPages(it.animatedValue as Float) }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(a: android.animation.Animator) { cur = n; layoutPages(0f) }
+            })
+            start()
+        }
+    }
+
+    /** 가로로 민 것만 가로채서 화면을 넘김 (세로 스크롤은 HA에 그대로) */
+    private inner class Pager : FrameLayout(this@MainActivity) {
+        private var x0 = 0f; private var y0 = 0f; private var dragging = false
+        private val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+        private var vt: android.view.VelocityTracker? = null
+        override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { x0 = e.x; y0 = e.y; dragging = false; pageAnim?.cancel()
+                    vt?.recycle(); vt = android.view.VelocityTracker.obtain(); vt?.addMovement(e) }
+                MotionEvent.ACTION_MOVE -> {
+                    vt?.addMovement(e)
+                    val dx = e.x - x0; val dy = e.y - y0
+                    if (kotlin.math.abs(dx) > slop * 2 && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.2f) { dragging = true; x0 = e.x - dx; return true }
+                }
+            }
+            return false
+        }
+        override fun onTouchEvent(e: MotionEvent): Boolean {
+            vt?.addMovement(e)
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    x0 = e.x; y0 = e.y; dragging = false; pageAnim?.cancel()
+                    vt?.recycle(); vt = android.view.VelocityTracker.obtain(); vt?.addMovement(e)
+                    return true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = e.x - x0
+                    if (!dragging && kotlin.math.abs(dx) > slop && kotlin.math.abs(dx) > kotlin.math.abs(e.y - y0)) dragging = true
+                    if (dragging) layoutPages(dx)
+                    return true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (!dragging) { layoutPages(0f); return true }
+                    val dx = e.x - x0
+                    vt?.computeCurrentVelocity(1000); val v = vt?.xVelocity ?: 0f
+                    val far = kotlin.math.abs(dx) > width * .25f || (kotlin.math.abs(v) > 1200 && kotlin.math.abs(dx) > slop)
+                    dragging = false
+                    if (far) goPage(if (dx < 0) cur + 1 else cur + 2, true, dx) else goBack(dx)
+                    return true
+                }
+            }
+            return true
+        }
+        private fun goBack(dx: Float) {
+            if (reduceMotion || dx == 0f) { layoutPages(0f); return }
+            pageAnim = ValueAnimator.ofFloat(dx, 0f).apply {
+                duration = 240; interpolator = EASE
+                addUpdateListener { layoutPages(it.animatedValue as Float) }; start()
+            }
+        }
     }
 
     // ───────── 리본 손잡이 ─────────
@@ -250,6 +421,7 @@ class MainActivity : ComponentActivity() {
         dim.visibility = if (p > 0f) View.VISIBLE else View.GONE
         dim.alpha = p * .4f
         tab.alpha = if (p > .02f) 0f else 1f
+        if (::indicator.isInitialized) indicator.alpha = 1f - (p * 3f).coerceAtMost(1f)
         if (p == 0f) hideKeyboard()
     }
 
@@ -560,7 +732,14 @@ class MainActivity : ComponentActivity() {
         }
 
     override fun onDestroy() {
+        // 화면이 꺼지면 표지로 돌려 둠 → 켤 때 항상 표지부터. 날짜는 매 분 확인
+        registerReceiver(sysRx, android.content.IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_TIME_TICK)
+            addAction(Intent.ACTION_DATE_CHANGED); addAction(Intent.ACTION_TIMEZONE_CHANGED)
+        })
+
         BadgeService.onChange = null
+        try { unregisterReceiver(sysRx) } catch (_: Exception) {}
         super.onDestroy()
     }
 }
