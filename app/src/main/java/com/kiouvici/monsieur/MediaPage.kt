@@ -435,7 +435,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         row.removeAllViews()
         if (!permOk) {
             emptyMsg?.text = "알림 접근을 허용하면 이 폰에서 재생 중인 음악이 여기 놓입니다."
-            val b = make(if (theme == Look.HOUR || theme == Look.TRAIN) "ALLOW · 알림 접근" else if (theme == Look.CAPTION) "알림 접근 허용 →" else "알림 접근 허용")
+            val b = make(if (theme == Look.CAPTION) "알림 접근 허용 →" else "알림 접근 허용").apply { typeface = Style.kr(context, 400); letterSpacing = 0f }
             tap(b) { host.openNotifAccess() }
             row.addView(b, LinearLayout.LayoutParams(-2, -1))
             return
@@ -559,6 +559,8 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     private fun buildLibrary(L: Lay) {
         lightBg = true
         background = android.graphics.drawable.LayerDrawable(arrayOf(android.graphics.drawable.ColorDrawable(0xFFF3EEE4.toInt()), Style.tile(context, Style.PAPER, 300f)))
+        // 상태바 글자가 흰색으로 남는 기기에서도 읽히도록 아주 옅은 위 그늘
+        addView(View(context).apply { background = vgrad(Style.ink(.14f), Color.TRANSPARENT) }, LayoutParams(-1, L.z(56f)))
         L.add(L.t("NOW PLAYING", Style.jost(context, 400), 10f, Style.ink(.55f), .35f), 36f, 70f)
         whenLine = L.t("", Fonts.serifI(context), 17f, Style.ink(.7f)).also { L.add(it, 36f, 92f) }
         // 사진 모서리로 붙인 앨범아트
@@ -753,7 +755,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         e.addView(L.t("DÉPARTS", Fonts.mono(context), 10f, GOLD_LT, .3f, Gravity.CENTER))
         e.addView(L.t("AUCUN DÉPART", Fonts.mono(context), 20f, Style.IVORY, .2f, Gravity.CENTER), LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(10f) })
         e.addView(L.t("음악을 틀면 열차가 출발합니다.", Style.kr(context, 300), 13f, Style.ivory(.75f), 0f, Gravity.CENTER).also { emptyMsg = it; emptyMsgOk = "음악을 틀면 열차가 출발합니다." }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(8f) })
-        val eb = hRow(); emptyButtons(eb) { pad(L.t(it, Fonts.mono(context), 12f, 0xFF2A1F0C.toInt(), .15f), 18f).apply { background = Pic(brassBig, Pic.FIT) } }
+        val eb = hRow(); emptyButtons(eb) { pad(L.t(it, Fonts.mono(context), 12f, 0xFF2A1F0C.toInt(), .15f), 30f).apply { background = Pic(brassBig, Pic.FIT) } }
         e.addView(eb, LinearLayout.LayoutParams(-2, L.z(48f)).apply { topMargin = L.z(18f) })
         L.addLR(e, 28f, 28f, 410f); emptyBox = e
     }

@@ -62,6 +62,7 @@ class ThemeCover(ctx: Context, private val look: Look) : FrameLayout(ctx) {
     // ── ② 서재: 시간을 문장으로
     private fun library(L: Lay) {
         background = android.graphics.drawable.LayerDrawable(arrayOf(android.graphics.drawable.ColorDrawable(0xFFF3EEE4.toInt()), Style.tile(context, Style.PAPER, 300f)))
+        addView(View(context).apply { background = vgrad(Style.ink(.14f), Color.TRANSPARENT) }, LayoutParams(-1, L.z(56f)))
         lDate = L.t("", Style.jost(context, 400), 10f, Style.ink(.55f), .35f).also { L.add(it, 36f, 165f) }
         lSent = L.t("", Fonts.serif(context), 34f, Style.INK).apply { setLineSpacing(L.zf(10f), 1f) }.also { L.addLR(it, 36f, 36f, 262f) }
         lTime = L.t("", Style.jost(context, 300), 12f, Style.ink(.6f), .2f, Gravity.CENTER).also { L.addLR(it, 0f, 0f, 738f) }
