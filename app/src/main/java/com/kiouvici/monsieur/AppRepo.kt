@@ -35,6 +35,24 @@ class AppRepo(private val ctx: Context) {
     private val folderOf = HashMap<String, String>()
     private val opens = HashMap<String, Int>()
 
+    /** 원UI 홈 폴더 캡처에서 옮긴 초기 배정(assets/folders.json).
+     *  아직 폴더가 없는 앱만 이름으로 찾아 넣음 — 직접 옮긴 앱은 건드리지 않음 */
+    private val preset: Map<String, String> by lazy {
+        val m = HashMap<String, String>()
+        try {
+            val o = JSONObject(ctx.assets.open("folders.json").bufferedReader().readText())
+            o.keys().forEach { f ->
+                if (f in FOLDERS) {
+                    val arr = o.getJSONArray(f)
+                    for (i in 0 until arr.length()) m[norm(arr.getString(i))] = f
+                }
+            }
+        } catch (e: Exception) { }
+        m
+    }
+
+    private fun norm(s: String) = s.lowercase().replace(Regex("\\s+"), "")
+
     init {
         loadMaps()
         reload()
@@ -73,6 +91,17 @@ class AppRepo(private val ctx: Context) {
                 )
             }
             .sortedBy { it.label }
+        applyPreset()
+    }
+
+    private fun applyPreset() {
+        var changed = false
+        apps.forEach { a ->
+            if (folderOf[a.pkg] !in FOLDERS) {
+                preset[norm(a.label)]?.let { folderOf[a.pkg] = it; changed = true }
+            }
+        }
+        if (changed) saveMaps()
     }
 
     /** 앱 묶음 키: 패키지 기준으로 폴더를 기억 (같은 앱의 여러 진입점도 함께 이동) */
