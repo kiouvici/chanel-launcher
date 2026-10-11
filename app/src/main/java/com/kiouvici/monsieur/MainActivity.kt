@@ -145,6 +145,7 @@ class MainActivity : ComponentActivity(), MediaHost {
     internal var themeOpen: View? = null
     internal var collection: View? = null
     internal var collPlace: (() -> Unit)? = null
+    internal var collChanged = false
 
     private var openP = 0f          // 0 닫힘 ~ 1 열림
     private var boxH = 0
@@ -271,7 +272,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         cardDots.forEach { (pkg, vs) -> vs.forEach { it.visibility = if (pkg in b) View.VISIBLE else View.GONE } }
     }
 
-    private fun closeAllNow() { hideMenu(); hideSettingsSheet(); hideCollection(); hideCard(); if (::search.isInitialized) search.setText(""); anim?.cancel(); setOpen(0f) }
+    internal fun closeAllNow() { hideMenu(); hideSettingsSheet(); hideCollection(); hideCard(); if (::search.isInitialized) search.setText(""); anim?.cancel(); setOpen(0f) }
 
     /** 화면 점검용 (adb am start --ei theme 0~4 --ei page 0~3 --ez drawer true --ei folder n) — 사람이 누를 일은 없음 */
     private fun shotIntent(i: Intent?) {
@@ -280,7 +281,10 @@ class MainActivity : ComponentActivity(), MediaHost {
         if (t in 0..4 && t != look.theme) applyTheme(t)
         val pg = i.getIntExtra("page", -1)
         if (pg in 0..3) { closeAllNow(); goPage(pg, false) }
+        if (i.hasExtra("demo")) media.demo = i.getIntExtra("demo", 0)
         when (i.getStringExtra("sheet")) {
+            "dial" -> root.postDelayed({ setOpen(1f); choiceSheet(0) }, 400)
+            "sound" -> root.postDelayed({ soundSheet(i.getIntExtra("demo", 1) - 1, H_GOLD) {} }, 400)
             "settings" -> root.postDelayed({ setOpen(1f); showSettingsSheet() }, 400)
             "display" -> root.postDelayed({ setOpen(1f); displaySheet() }, 400)
             "collection" -> root.postDelayed({ showCollection() }, 400)
@@ -294,7 +298,7 @@ class MainActivity : ComponentActivity(), MediaHost {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.hasExtra("theme") || intent.hasExtra("page") || intent.hasExtra("drawer") || intent.hasExtra("sheet")) { root.postDelayed({ shotIntent(intent) }, 300); return }
+        if (intent.hasExtra("theme") || intent.hasExtra("page") || intent.hasExtra("drawer") || intent.hasExtra("sheet") || intent.hasExtra("demo")) { root.postDelayed({ shotIntent(intent) }, 300); return }
         // 홈 버튼: 열린 것만 닫는다 (서랍은 끌어올리기로만 연다 — 성훈님 결정)
         if (Intent.ACTION_MAIN == intent.action) {
             val wasClosed = openP == 0f && card.visibility != View.VISIBLE
@@ -648,7 +652,7 @@ class MainActivity : ComponentActivity(), MediaHost {
     }
 
     private var pageAnim: ValueAnimator? = null
-    private fun goPage(target: Int, animate: Boolean = true, fromDx: Float = 0f) {
+    internal fun goPage(target: Int, animate: Boolean = true, fromDx: Float = 0f) {
         pageAnim?.cancel()
         val w = pager.width.toFloat().takeIf { it > 0 } ?: resources.displayMetrics.widthPixels.toFloat()
         val n = ((target % N) + N) % N
@@ -918,9 +922,9 @@ class MainActivity : ComponentActivity(), MediaHost {
         settingsBtn = label("SETTINGS", Style.jost(this, 300), 9f, Style.ivory(.6f), .25f, Gravity.END or Gravity.CENTER_VERTICAL)
         settingsBtn.contentDescription = "설정"
         settingsBtn.setOnClickListener { showSettingsSheet() }
-        foot.addView(settingsBtn, LinearLayout.LayoutParams(dp(88f), -1))
+        foot.addView(settingsBtn, LinearLayout.LayoutParams(dp(104f), -1))
         footWrap.addView(foot, FrameLayout.LayoutParams(-1, -1))
-        col.addView(footWrap, LinearLayout.LayoutParams(-1, dp(40f)).apply { bottomMargin = dp(8f) })
+        col.addView(footWrap, LinearLayout.LayoutParams(-1, dp(44f)).apply { bottomMargin = dp(4f) })
     }
 
     /** 0.5dp 같은 가는 선 — 최소 1px */
@@ -1524,6 +1528,14 @@ class MainActivity : ComponentActivity(), MediaHost {
     // ───────── 바텀시트 (SETTINGS · 이름 바꾸기 · 폴더 고르기 · 숨긴 앱 · 삭제 확인) ─────────
     private var sheetBg: View? = null
     private var sheet: LinearLayout? = null
+    private var sheetWrap: View? = null
+    /** 시트가 화면보다 길면 안에서 스크롤 (상태바 아래 24dp까지) */
+    private inner class MaxScroll : android.widget.ScrollView(this@MainActivity) {
+        override fun onMeasure(wSpec: Int, hSpec: Int) {
+            val mx = (root.height - sbTop - dp(24f)).coerceAtLeast(dp(200f))
+            super.onMeasure(wSpec, View.MeasureSpec.makeMeasureSpec(mx, View.MeasureSpec.AT_MOST))
+        }
+    }
 
     private fun openSheet(build: (LinearLayout) -> Unit) {
         hideSettingsSheet()
@@ -1534,19 +1546,22 @@ class MainActivity : ComponentActivity(), MediaHost {
             elevation = dpf(32f); isClickable = true
         }
         build(sh)
+        val sw = MaxScroll().apply { elevation = dpf(32f); isFillViewport = false; overScrollMode = View.OVER_SCROLL_NEVER; isVerticalScrollBarEnabled = false }
+        sh.elevation = 0f
+        sw.addView(sh, FrameLayout.LayoutParams(-1, -2))
         root.addView(bg, FrameLayout.LayoutParams(-1, -1))
-        root.addView(sh, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+        root.addView(sw, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+        sheetBg = bg; sheet = sh; sheetWrap = sw
         placeSheet(sh)
-        sheetBg = bg; sheet = sh
         bg.animate().alpha(.4f).setDuration(if (reduceMotion) 120 else 280).start()
-        if (!reduceMotion) { sh.translationY = dpf(200f); sh.animate().translationY(0f).setDuration(280).setInterpolator(EASE).start() }
+        if (!reduceMotion) { sw.translationY = dpf(200f); sw.animate().translationY(0f).setDuration(280).setInterpolator(EASE).start() }
     }
 
     /** 키보드가 있으면 키보드 바로 위 + 아래 여백 24dp, 없으면 제스처 영역 + 24dp (빈칸 두 번 계산하던 문제 — 샤넬팀 #7) */
     private fun placeSheet(sh: LinearLayout) {
         val ime = imeBot > navBot
-        sh.setPadding(dp(24f), dp(24f), dp(24f), dp(24f) + if (ime) 0 else navBot)
-        (sh.layoutParams as? FrameLayout.LayoutParams)?.let { it.bottomMargin = if (ime) imeBot else 0; sh.requestLayout() }
+        sh.setPadding(dp(24f), dp(24f), dp(24f), dp(if (ime) 24f else 16f) + if (ime) 0 else navBot)
+        (sheetWrap?.layoutParams as? FrameLayout.LayoutParams)?.let { it.bottomMargin = if (ime) imeBot else 0; sheetWrap?.requestLayout() }
     }
 
     /** 시트 머리글: 카드 키커와 같은 Jost 400 10sp, 자간 .3em, 검정 55% (샤넬팀 #9) */
@@ -1647,7 +1662,9 @@ class MainActivity : ComponentActivity(), MediaHost {
             for (i in 0..1) {
                 val t = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setBackgroundColor(if (kind == 0) Color.BLACK else 0xFFFBF8F1.toInt()); setPadding(dp(10f), dp(12f), dp(10f), dp(10f)) }
                 if (kind == 0) {
-                    t.addView(View(this).apply { background = Pic(Style.img(this@MainActivity, if (i == 0) "th/hour_dial_a.webp" else "th/hour_dial_b.webp"), Pic.CONTAIN) }, LinearLayout.LayoutParams(dp(112f), dp(112f)))
+                    // 실제 표지와 같은 문자판 (바늘 · 날짜창 포함, 지금 시각)
+                    val cal = java.util.Calendar.getInstance()
+                    t.addView(HourDial(this, i).apply { set(cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE), cal.get(java.util.Calendar.DAY_OF_MONTH), false) }, LinearLayout.LayoutParams(dp(112f), dp(112f)))
                     t.addView(label(if (i == 0) "NOIR" else "IVOIRE", Style.jost(this, 400), 11f, H_IVORY, .3f), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8f) })
                     t.addView(label(if (i == 0) "검정 세라믹 · 금빛 바늘" else "아이보리 에나멜 · 검정 바늘", Style.kr(this, 300), 11f, tint(.6f, H_IVORY), 0f), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2f) })
                 } else {
@@ -1722,22 +1739,42 @@ class MainActivity : ComponentActivity(), MediaHost {
     }
 
     // ───────── MediaHost ─────────
-    override fun sendSheet(sources: List<String>, current: String, onPick: (String) -> Unit) {
+    override fun pickSheet(kicker: String, items: List<String>, current: String, note: String?, onPick: (String) -> Unit) {
         openSheet { sh ->
-            sheetKicker(sh, "SPOTIFY · SEND TO")
-            fun srow(text: String, sub: String?, on: Boolean, go: () -> Unit) {
+            sheetKicker(sh, kicker)
+            items.forEach { s ->
                 val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; background = pressedBg() }
-                r.addView(label(text, Style.kr(this, 300), 14f, Style.INK, 0f, Gravity.START or Gravity.CENTER_VERTICAL), LinearLayout.LayoutParams(0, -2, 1f))
-                if (sub != null) r.addView(label(sub, Style.kr(this, 300), 11f, Style.ink(.55f), 0f, Gravity.END))
-                if (on) r.addView(View(this).apply { background = shape(Style.GOLD, oval = true) }, LinearLayout.LayoutParams(dp(8f), dp(8f)).apply { leftMargin = dp(10f) })
-                r.setOnClickListener { hideSettingsSheet(); go() }
-                sh.addView(View(this).apply { setBackgroundColor(Style.ink(.1f)) }, LinearLayout.LayoutParams(-1, hair(.5f)))
-                sh.addView(r, LinearLayout.LayoutParams(-1, dp(52f)))
+                r.addView(label(s, Style.kr(this, 400), 14.5f, Style.INK, 0f, Gravity.START or Gravity.CENTER_VERTICAL), LinearLayout.LayoutParams(0, -2, 1f))
+                if (s == current) r.addView(View(this).apply { background = shape(Style.GOLD, oval = true) }, LinearLayout.LayoutParams(dp(8f), dp(8f)).apply { leftMargin = dp(10f) })
+                r.setOnClickListener { hideSettingsSheet(); onPick(s) }
+                sh.addView(View(this).apply { setBackgroundColor(Style.ink(.12f)) }, LinearLayout.LayoutParams(-1, hair(.5f)))
+                sh.addView(r, LinearLayout.LayoutParams(-1, dp(56f)))
             }
-            srow("Marantz에서 듣기", "HA 스크립트", false) { onPick("__living") }
-            sources.forEach { s -> srow(s, null, s == current) { onPick(s) } }
-            if (sources.isEmpty()) sh.addView(label("Spotify 기기 목록이 비어 있습니다 · Spotify 앱을 한 번 열어 두면 나타납니다",
-                Style.kr(this, 300), 12f, Style.ink(.5f), 0f, Gravity.START), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12f) })
+            if (note != null) sh.addView(label(note, Style.kr(this, 300), 12f, Style.ink(.55f), 0f, Gravity.START), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14f) })
+        }
+    }
+    /** 소리 창: 이 폰 · Marantz · 블루투스 — 지금 듣는 곳에 '듣는 중' + 테마색 점 */
+    override fun soundSheet(cur: Int, dot: Int, onPick: (Int) -> Unit) {
+        openSheet { sh ->
+            sh.addView(label("LE SON · 소리", Style.jost(this, 400), 11f, Style.ink(.55f), .2f, Gravity.START), LinearLayout.LayoutParams(-1, -2))
+            sh.addView(label("어디서 들을까요?", Style.kr(this, 400), 18f, Style.INK, 0f, Gravity.START), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8f); bottomMargin = dp(16f) })
+            listOf(Triple(0, "이 폰에서 듣기", "Spotify · 이 폰 스피커"), Triple(1, "Marantz에서 듣기", "Marantz NR1711 · 거실"), Triple(2, "블루투스 · 이어폰", "삼성 출력 창 열기 ›")).forEach { (k, t, sub) ->
+                sh.addView(View(this).apply { setBackgroundColor(Style.ink(.12f)) }, LinearLayout.LayoutParams(-1, hair(.75f)))
+                val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; background = pressedBg() }
+                val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                col.addView(label(t, Style.kr(this, 400), 14.5f, Style.INK, 0f, Gravity.START))
+                col.addView(label(sub, Style.kr(this, 300), 12f, Style.ink(.6f), 0f, Gravity.START), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(5f) })
+                r.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
+                if (k == cur) {
+                    r.addView(label("듣는 중", Style.kr(this, 400), 12f, Style.ink(.7f), 0f, Gravity.END))
+                    r.addView(View(this).apply { background = shape(dot, oval = true) }, LinearLayout.LayoutParams(dp(8f), dp(8f)).apply { leftMargin = dp(8f) })
+                }
+                r.setOnClickListener { hideSettingsSheet(); onPick(k) }
+                sh.addView(r, LinearLayout.LayoutParams(-1, dp(62f)))
+            }
+            sh.addView(View(this).apply { setBackgroundColor(Style.ink(.12f)) }, LinearLayout.LayoutParams(-1, hair(.75f)))
+            sh.addView(label("바꾸면 Spotify가 그 기기로 옮겨 갑니다.\n2~5초 걸릴 수 있습니다.", Style.kr(this, 300), 12f, Style.ink(.55f), 0f, Gravity.START).apply { setLineSpacing(dpf(4f), 1f) },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14f) })
         }
     }
     override fun askToken() = tokenSheet()
@@ -1864,8 +1901,8 @@ class MainActivity : ComponentActivity(), MediaHost {
 
     internal fun hideSettingsSheet(): Boolean {
         val bg = sheetBg ?: return false
-        root.removeView(bg); sheet?.let { root.removeView(it) }
-        sheetBg = null; sheet = null
+        root.removeView(bg); sheetWrap?.let { root.removeView(it) }
+        sheetBg = null; sheet = null; sheetWrap = null
         return true
     }
 
@@ -1875,8 +1912,8 @@ class MainActivity : ComponentActivity(), MediaHost {
     }
 
     // ───────── 공통 ─────────
-    private fun label(text: String, tf: android.graphics.Typeface, sp: Float, color: Int, spacing: Float, g: Int = Gravity.CENTER_HORIZONTAL) =
-        TextView(this).apply {
+    private fun label(text: CharSequence, tf: android.graphics.Typeface, sp: Float, color: Int, spacing: Float, g: Int = Gravity.CENTER_HORIZONTAL) =
+        KText(this).apply {
             this.text = text; typeface = tf; textSize = sp; setTextColor(color); letterSpacing = spacing; gravity = g
             includeFontPadding = false
         }

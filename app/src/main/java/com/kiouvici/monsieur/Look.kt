@@ -12,7 +12,7 @@ class Look(ctx: Context) {
         const val TRAIN = 3
         const val CAPTION = 4
         val NAMES = listOf("MONSIEUR", "THE LIBRARY", "THE HOUR", "THE VOYAGE", "THE CAPTION")
-        val WHEN = listOf("평일 기본 · 검은 상자와 리본", "주말 아침 · 캉봉 아파트의 서재 · 원고지", "평일 출근 · 시계 문자판 NOIR / IVOIRE",
+        val WHEN = listOf("평일 기본 · 검은 상자와 리본", "주말 아침 · 캉봉 아파트의 서재 · 원고지", "평일 출근 · NOIR / IVOIRE 문자판",
             "여행·주말·가족 · 엽서 한 장에 담은 우리 여행", "기념일·가족 · 직접 찍은 사진")
         const val HA_BASE = "https://kiouvici.synology.me:8123"
         const val MAX_PHOTOS = 6
@@ -72,6 +72,11 @@ class Look(ctx: Context) {
     var libOrder: Int
         get() = p.getInt("libOrder", 0).coerceIn(0, 1)
         set(v) { p.edit().putInt("libOrder", v).apply() }
+
+    /** Spotify 기기 목록에서 이 폰의 이름 (한 번 고르면 기억) */
+    var spPhone: String
+        get() = p.getString("spPhone", "") ?: ""
+        set(v) { p.edit().putString("spPhone", v).apply() }
 
     /** THE VOYAGE 대표사진 (최대 6장): 앱 안에 복사한 파일 + 장소·날짜 + 보일 범위(확대 s, 중심 cx·cy 0~1) */
     data class Trip(val file: String, val place: String, val date: String, val s: Float, val cx: Float, val cy: Float)

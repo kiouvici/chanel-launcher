@@ -37,8 +37,26 @@ object Fonts {
     fun serifKR(ctx: Context) = f(ctx, "NotoSerifKR-500.otf")    // Noto Serif KR 500 (원고지 · 문장 속 한글)
 }
 
+/** 한글 낱말 안에서 줄이 바뀌지 않게 (CSS keep-all): 붙어 있는 한글 글자 사이에 줄바꿈 금지 문자(U+2060)를 넣음 */
+private val HANGUL_PAIR = Regex("(?<=[\\uAC00-\\uD7A3])(?=[\\uAC00-\\uD7A3])")
+fun keepAll(s: CharSequence?): CharSequence? {
+    if (s == null || s.length < 2) return s
+    if (!HANGUL_PAIR.containsMatchIn(s)) return s
+    if (s !is android.text.Spanned) return HANGUL_PAIR.replace(s, "\u2060")
+    val b = android.text.SpannableStringBuilder(s)
+    for (i in b.length - 1 downTo 1) {
+        val a = b[i - 1]; val c = b[i]
+        if (a in '\uAC00'..'\uD7A3' && c in '\uAC00'..'\uD7A3') b.insert(i, "\u2060")
+    }
+    return b
+}
+/** 여러 줄 한글이 낱말 단위로 줄바꿈되는 TextView */
+class KText(ctx: Context) : TextView(ctx) {
+    override fun setText(text: CharSequence?, type: BufferType?) { super.setText(keepAll(text), type) }
+}
+
 fun Context.txt(text: CharSequence, tf: Typeface, sp: Float, color: Int, spacing: Float = 0f, g: Int = Gravity.START): TextView =
-    TextView(this).apply {
+    KText(this).apply {
         this.text = text; typeface = tf; textSize = sp; setTextColor(color); letterSpacing = spacing; gravity = g
         includeFontPadding = false
     }

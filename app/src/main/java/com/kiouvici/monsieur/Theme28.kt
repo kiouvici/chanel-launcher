@@ -265,7 +265,7 @@ class Manuscript(ctx: Context) : View(ctx) {
     private val tp = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
 
     fun measureFor(w: Int, h: Int) {
-        u = minOf(w / 390f, h / (rows * 44f + 14f))
+        u = minOf(w / 390f, h / (rows * 44f + 18f))   // 아래 안쪽 여백 4 (마지막 줄이 테두리에 붙지 않게)
         ox = (w - 380 * u) / 2f; oy = 5 * u
     }
     /** 폴더 i의 줄·쪽(0 왼쪽 1 오른쪽) */
@@ -279,7 +279,7 @@ class Manuscript(ctx: Context) : View(ctx) {
         val a = .50f
         val col = Color.argb((a * 255).roundToInt(), 192, 83, 63)
         val dimc = Color.argb((a * .6f * 255).roundToInt(), 192, 83, 63)
-        val L = ox; val R = ox + 380 * u; val T = oy; val B = oy + (rows * 44 + 4) * u
+        val L = ox; val R = ox + 380 * u; val T = oy; val B = oy + (rows * 44 + 8) * u
         // 겹선 테두리
         p.style = Paint.Style.STROKE; p.color = Color.argb((a * 1.27f * 255).roundToInt().coerceAtMost(255), 192, 83, 63)
         p.strokeWidth = 1.5f * u; c.drawRect(L + .5f * u, T, R - .5f * u, B, p)
@@ -319,79 +319,84 @@ class Manuscript(ctx: Context) : View(ctx) {
 }
 
 // ═════════ 미디어 볼륨 막대 ═════════
-/** PHONE / MARANTZ 볼륨 (0~100). cap = 마란츠 상한 50 (선과 '50' 표시, 넘는 구간 흐리게, 손잡이 막힘) */
+/** PHONE(0~150, 삼성 볼륨 창과 같은 숫자) / MARANTZ(0~50) 볼륨 — 막대 오른쪽 끝 = max. 옆으로 끌 때만 움직임 */
 class VolBar(ctx: Context, private val style: Int, private val color: Int, private val dimColor: Int) : View(ctx) {
     companion object { const val TICKS = 0; const val LINE_TAB = 1; const val LINE_DOT = 2; const val RULER = 3; const val DOTS = 4 }
-    var value = 0; set(v) { field = v.coerceIn(0, 100); invalidate() }
-    var cap = false; set(v) { field = v; invalidate() }
+    /** 단계 수 (폰 150 · Marantz 50) — 막대 오른쪽 끝 = max */
+    var max = 100; set(v) { field = v.coerceAtLeast(1); invalidate() }
+    var value = 0; set(v) { field = v.coerceIn(0, max); invalidate() }
     var onChange: ((Int) -> Unit)? = null
     var onRelease: ((Int) -> Unit)? = null
+    /** 막대 양끝 안쪽 여백(px) — 뷰를 막대보다 좌우 이만큼 넓게 놓아 손잡이가 잘리지 않게 */
+    var padPx = 8 * ctx.resources.displayMetrics.density
     private val p = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-    private val tp = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
     private val tab = if (style == LINE_TAB) Style.img(ctx, "tab.webp") else null
     private val d = ctx.resources.displayMetrics.density
-    private fun x0() = 8 * d
-    private fun x1() = width - 8 * d
-    private fun xAt(v: Float) = x0() + (x1() - x0()) * v / 100f
+    private fun x0() = padPx
+    private fun x1() = width - padPx
+    private fun frac() = value / max.toFloat()
+    private fun xAt(f: Float) = x0() + (x1() - x0()) * f
 
     override fun onDraw(c: Canvas) {
         val y = height / 2f
-        val v = value.toFloat()
+        val f = frac()
+        p.style = Paint.Style.FILL; p.alpha = 255
         when (style) {
             TICKS -> {
                 p.strokeWidth = .75f * d
                 for (i in 0..60) {
-                    val f = i / 60f * 100f; val x = xAt(f); val L = (if (i % 5 == 0) 8 else 4) * d
-                    p.color = if (f <= v) color else if (cap && f > 50f) tint(.08f, H_IVORY) else dimColor
-                    c.drawLine(x, y + 2 * d - L / 2, x, y + 2 * d + L / 2, p)
+                    val t = i / 60f; val x = xAt(t); val L = (if (i % 5 == 0) 8 else 4) * d
+                    p.color = if (t <= f + 1e-4f) color else dimColor
+                    c.drawLine(x, y - L / 2, x, y + L / 2, p)
                 }
-                val mx = xAt(v)
-                p.color = color; p.style = Paint.Style.FILL
-                c.drawPath(Path().apply { moveTo(mx - 5 * d, y - 12 * d); lineTo(mx + 5 * d, y - 12 * d); lineTo(mx, y - 5 * d); close() }, p)
+                val mx = xAt(f)
+                p.color = color
+                c.drawPath(Path().apply { moveTo(mx - 5 * d, y - 14 * d); lineTo(mx + 5 * d, y - 14 * d); lineTo(mx, y - 7 * d); close() }, p)
             }
-            LINE_TAB, LINE_DOT, RULER -> {
-                p.style = Paint.Style.FILL
-                p.color = if (style == RULER) color else dimColor
-                c.drawRect(x0(), y - (if (style == RULER) .4f else 1f) * d, x1(), y + (if (style == RULER) .4f else 1f) * d, p)
-                if (style == RULER) { p.strokeWidth = .75f * d; for (k in 0..10) { val x = xAt(k * 10f); c.drawLine(x, y, x, y + (if (k % 5 == 0) 8 else 4) * d, p) } }
-                else { p.color = color; c.drawRect(x0(), y - d, xAt(v), y + d, p) }
-                if (cap) { p.color = tint(.65f, dimColor); c.drawRect(xAt(50f) + d, y - 3 * d, x1(), y + 3 * d, p.apply { alpha = 40 }); p.alpha = 255 }
-                val mx = xAt(v)
-                when (style) {
-                    LINE_TAB -> tab?.let { c.drawBitmap(it, null, RectF(mx - 14 * d, y - 6 * d, mx + 14 * d, y + 6 * d), p) }
-                    LINE_DOT -> { p.color = color; c.drawCircle(mx, y, 7 * d, p) }
-                    else -> { p.color = color; c.drawCircle(mx, y, 6 * d, p) }
-                }
+            LINE_TAB, LINE_DOT -> {
+                p.color = dimColor; c.drawRect(x0(), y - .5f * d, x1(), y + .5f * d, p)
+                p.color = color; c.drawRect(x0(), y - d, xAt(f), y + d, p)
+                val mx = xAt(f)
+                if (style == LINE_TAB) tab?.let { c.drawBitmap(it, null, RectF(mx - 14 * d, y - 6 * d, mx + 14 * d, y + 6 * d), p) }
+                else { p.color = color; c.drawCircle(mx, y, 7 * d, p) }
+            }
+            RULER -> {
+                p.color = color; c.drawRect(x0(), y - .5f * d, x1(), y + .5f * d, p)
+                p.strokeWidth = .75f * d
+                for (k in 0..10) { val x = xAt(k / 10f); c.drawLine(x, y, x, y + (if (k % 5 == 0) 8 else 4) * d, p) }
+                c.drawCircle(xAt(f), y, 6 * d, p)
             }
             DOTS -> {
-                val on = (v / 10f).roundToInt()
+                val on = (f * 10f).roundToInt()
+                val step = (x1() - x0() - 6 * d) / 9f
                 for (k in 0 until 10) {
-                    val x = x0() + k * 16 * d + 3 * d
-                    p.color = if (k < on) color else if (cap && k >= 5) tint(.08f, color) else dimColor
-                    c.drawCircle(x, y, 3 * d, p)
+                    p.color = if (k < on) color else dimColor
+                    c.drawCircle(x0() + 3 * d + k * step, y, 3 * d, p)
                 }
             }
-        }
-        if (cap) {
-            val cx = if (style == DOTS) x0() + 4.5f * 16 * d + 3 * d + 8 * d else xAt(50f)
-            p.color = color; p.strokeWidth = d; c.drawLine(cx, y - 7 * d, cx, y + 9 * d, p)
-            tp.textSize = 9 * d; tp.color = tint(.8f, color); tp.typeface = Style.jost(context, 400)
-            c.drawText("50", cx, y - 10 * d, tp)
         }
     }
 
+    // 톡 눌러서 뛰지 않음: 옆으로 끌 때만 값이 바뀜. 처음 8dp로 방향을 정하고, 위로(가로의 1.7배 넘게) 밀면 서랍에 넘김
+    private var downX = 0f; private var downY = 0f; private var startV = 0; private var mode = 0   // 0 미정 · 1 볼륨 · 2 넘김
     @android.annotation.SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
-                parent?.requestDisallowInterceptTouchEvent(true)
-                val f = if (style == DOTS) ((e.x - x0()) / (16 * d * 10) * 100f) else ((e.x - x0()) / (x1() - x0()) * 100f)
-                var nv = f.roundToInt().coerceIn(0, 100)
-                if (cap) nv = nv.coerceAtMost(50)
-                if (nv != value) { value = nv; onChange?.invoke(nv) }
-                return true
+            MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y; startV = value; mode = 0; return true }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = e.x - downX; val dy = e.y - downY
+                if (mode == 0 && kotlin.math.hypot(dx, dy) > 8 * d) {
+                    mode = if (-dy > kotlin.math.abs(dx) * 1.7f || kotlin.math.abs(dy) > kotlin.math.abs(dx) * 1.7f) 2 else 1
+                    if (mode == 1) { parent?.requestDisallowInterceptTouchEvent(true); downX = e.x; startV = value }
+                }
+                if (mode == 1) {
+                    val nv = (startV + (e.x - downX) / (x1() - x0()) * max).roundToInt().coerceIn(0, max)
+                    if (nv != value) { value = nv; onChange?.invoke(nv) }
+                    return true
+                }
+                return mode != 2
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { onRelease?.invoke(value); return true }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { if (mode == 1) onRelease?.invoke(value); mode = 0; return true }
         }
         return true
     }
