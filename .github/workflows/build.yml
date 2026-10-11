@@ -2,6 +2,7 @@ name: build-apk
 on:
   push:
     branches: [main]
+    paths-ignore: [".github/workflows/screens.yml", "scripts/**"]
   workflow_dispatch:
 permissions:
   contents: write
