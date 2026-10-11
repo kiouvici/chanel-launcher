@@ -115,6 +115,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var cardTitle: TextView
     private lateinit var cardHint: TextView
     private lateinit var cardApps: GridLayout
+    private lateinit var cardScroll: ScrollView
+    private lateinit var cardScrim: View
 
     private var openP = 0f          // 0 닫힘 ~ 1 열림
     private var boxH = 0
@@ -153,6 +155,7 @@ class MainActivity : ComponentActivity() {
         buildBox()
         buildCard()
 
+        androidx.core.view.ViewCompat.requestApplyInsets(root)
         root.post { applyInsets(); setOpen(0f) }
 
         // 화면이 꺼지면 표지로 돌려 둠 → 켤 때 항상 표지부터. 날짜는 매 분 확인
@@ -210,6 +213,20 @@ class MainActivity : ComponentActivity() {
     /** 상태바·제스처 영역에 맞춰 자리 잡기 */
     private fun applyInsets() {
         if (root.height == 0 || !::box.isInitialized || !::band.isInitialized) return
+        // 상태바·제스처 영역 높이를 직접 다시 읽음 (실기기에서 0으로 읽히던 문제 — 샤넬팀 검수)
+        androidx.core.view.ViewCompat.getRootWindowInsets(root)?.let {
+            val sb = it.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            if (sb.top > 0) sbTop = sb.top
+            if (sb.bottom > 0) navBot = sb.bottom
+        }
+        if (sbTop == 0) {
+            val id = resources.getIdentifier("status_bar_height", "dimen", "android")
+            if (id > 0) sbTop = resources.getDimensionPixelSize(id)
+        }
+        if (navBot == 0) {
+            val id = resources.getIdentifier("navigation_bar_height", "dimen", "android")
+            if (id > 0) navBot = resources.getDimensionPixelSize(id)
+        }
         listOf(web, webHouse).forEach { w ->
             (w.layoutParams as FrameLayout.LayoutParams).apply { topMargin = sbTop; bottomMargin = navBot + dp(24f) }
             w.requestLayout()
@@ -389,13 +406,18 @@ class MainActivity : ComponentActivity() {
             leftMargin = dp(16f); rightMargin = dp(16f); topMargin = sbTop + dp(12f); bottomMargin = navBot + dp(28f)
         }
         (wordmark.layoutParams as FrameLayout.LayoutParams).topMargin = (h * .28f).toInt()
-        (clock.layoutParams as FrameLayout.LayoutParams).topMargin = ribbonBottom + dp(32f)
         wordmark.post {
-            (monsieur.layoutParams as FrameLayout.LayoutParams).topMargin = (h * .28f).toInt() + wordmark.height + dp(16f)
+            // 글자 상자가 아니라 실제 글자 윗선·밑선 기준으로 간격을 맞춤
+            val wTop = (h * .28f).toInt()
+            val wBase = wTop + wordmark.baseline
+            (monsieur.layoutParams as FrameLayout.LayoutParams).topMargin = wBase + dp(16f) - capGap(monsieur, "M")
             monsieur.requestLayout()
-            (dateText.layoutParams as FrameLayout.LayoutParams).topMargin = ribbonTop - dp(24f) - dateText.height
+            (dateText.layoutParams as FrameLayout.LayoutParams).topMargin = ribbonTop - dp(24f) - dateText.baseline
             dateText.requestLayout()
-            (weather.layoutParams as FrameLayout.LayoutParams).topMargin = ribbonBottom + dp(32f) + clock.height + dp(12f)
+            val cTop = ribbonBottom + dp(32f) - capGap(clock, "0")
+            (clock.layoutParams as FrameLayout.LayoutParams).topMargin = cTop
+            clock.requestLayout()
+            (weather.layoutParams as FrameLayout.LayoutParams).topMargin = cTop + clock.baseline + dp(12f) - capGap(weather, "2")
             weather.requestLayout()
         }
         // HA 준비 금선·다시 연결은 테두리 안쪽 맨 아래
@@ -403,6 +425,12 @@ class MainActivity : ComponentActivity() {
         (progressTrack.layoutParams as FrameLayout.LayoutParams).apply { topMargin = inBottom - dp(16f); leftMargin = dp(32f); rightMargin = dp(32f) }
         (failBox.layoutParams as FrameLayout.LayoutParams).topMargin = inBottom - dp(96f)
         listOf(frame, wordmark, clock, progressTrack, failBox).forEach { it.requestLayout() }
+    }
+
+    /** 글자 상자 맨 위에서 실제 글자 윗선까지의 거리 */
+    private fun capGap(tv: TextView, sample: String): Int {
+        val r = android.graphics.Rect(); tv.paint.getTextBounds(sample, 0, sample.length, r)
+        return (tv.baseline + r.top).coerceAtLeast(0)
     }
 
     /** CHANEL 홈 화면(뒤에 열어 둔 웹뷰)에 실제로 보이는 날씨 문장을 읽어 옴. 연결이 끊겼으면 숨김 */
@@ -838,8 +866,8 @@ class MainActivity : ComponentActivity() {
         cardHint = label("길게 눌러 다른 카드로 옮기기", Style.kr(this, 300), 11f, Style.ink(.5f), 0f, Gravity.START)
         col.addView(cardHint, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f); leftMargin = dp(26f) })
         cardApps = GridLayout(this).apply { columnCount = 4 }
-        val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(cardApps) }
-        col.addView(sv, LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(14f) })
+        cardScroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(cardApps) }
+        col.addView(cardScroll, LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(14f) })
         val close = label("폴더 닫기", Style.kr(this, 400), 13f, Style.INK, .04f).apply {
             gravity = Gravity.CENTER
             background = GradientDrawable().apply { setStroke(dp(1f), Style.INK) }
@@ -848,6 +876,9 @@ class MainActivity : ComponentActivity() {
         col.addView(close, LinearLayout.LayoutParams(-1, dp(44f)).apply {
             leftMargin = dp(26f); rightMargin = dp(26f); topMargin = dp(12f); bottomMargin = dp(26f)
         })
+        // 카드 바깥(상자)을 누르면 카드가 닫힘
+        cardScrim = View(this).apply { setBackgroundColor(Style.ink(.35f)); elevation = dpf(23f); visibility = View.GONE; setOnClickListener { hideCard() } }
+        root.addView(cardScrim, FrameLayout.LayoutParams(-1, -1))
         root.addView(card, FrameLayout.LayoutParams(-1, -2, Gravity.TOP).apply {
             leftMargin = dp(16f); rightMargin = dp(16f); topMargin = dp(110f)
         })
@@ -894,7 +925,7 @@ class MainActivity : ComponentActivity() {
         cardTitle.text = "‘$q’"
         cardHint.text = if (searchList.isEmpty()) "찾는 앱이 없습니다" else "앱 ${searchList.size}개"
         refreshCardApps()
-        if (card.visibility != View.VISIBLE) revealCard()
+        if (card.visibility != View.VISIBLE) revealCard() else fitCard()
     }
 
     private fun refreshCardApps() {
@@ -936,7 +967,26 @@ class MainActivity : ComponentActivity() {
 
     private fun closeAllLater() { root.postDelayed({ closeAll() }, 350) }
 
+    /** 앱이 많아 카드가 화면보다 길면, 카드를 화면 안에 맞추고 앱 목록만 스크롤 — '폴더 닫기'가 늘 보이게 */
+    private fun fitCard() {
+        val top = sbTop + dp(64f)
+        val avail = root.height - top - navBot - dp(24f)
+        (card.layoutParams as FrameLayout.LayoutParams).apply { topMargin = top; height = FrameLayout.LayoutParams.WRAP_CONTENT }
+        (cardScroll.layoutParams as LinearLayout.LayoutParams).apply { height = LinearLayout.LayoutParams.WRAP_CONTENT; weight = 0f }
+        (card.getChildAt(0).layoutParams as FrameLayout.LayoutParams).height = FrameLayout.LayoutParams.WRAP_CONTENT
+        card.measure(View.MeasureSpec.makeMeasureSpec(root.width - dp(32f), View.MeasureSpec.EXACTLY), View.MeasureSpec.UNSPECIFIED)
+        if (card.measuredHeight > avail) {
+            (card.layoutParams as FrameLayout.LayoutParams).height = avail
+            (card.getChildAt(0).layoutParams as FrameLayout.LayoutParams).height = FrameLayout.LayoutParams.MATCH_PARENT
+            (cardScroll.layoutParams as LinearLayout.LayoutParams).apply { height = 0; weight = 1f }
+        }
+        cardScroll.scrollTo(0, 0)
+        card.requestLayout()
+    }
+
     private fun revealCard() {
+        fitCard()
+        cardScrim.visibility = View.VISIBLE
         card.visibility = View.VISIBLE
         if (reduceMotion) { card.alpha = 1f; return }
         card.alpha = 0f; card.scaleX = .94f; card.scaleY = .94f; card.translationY = dpf(30f)
@@ -947,6 +997,7 @@ class MainActivity : ComponentActivity() {
         if (!::card.isInitialized) return
         cardFolder = null
         card.visibility = View.GONE
+        if (::cardScrim.isInitialized) cardScrim.visibility = View.GONE
     }
 
     private fun hideKeyboard() {
