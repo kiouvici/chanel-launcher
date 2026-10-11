@@ -1,6 +1,8 @@
 name: screens
 on:
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   shots:
     runs-on: ubuntu-latest
@@ -26,12 +28,15 @@ jobs:
           api-level: 34
           target: google_apis
           arch: x86_64
-          profile: pixel_7
+          profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash scripts/shots.sh
-      - uses: actions/upload-artifact@v4
+          script: mkdir -p shots && bash scripts/shots.sh > shots/run.log 2>&1 || true
+      - name: Push shots to branch
         if: always()
-        with:
-          name: shots
-          path: shots/
+        run: |
+          mkdir -p shots; echo "${{ github.run_id }}" > shots/RUN
+          cd shots
+          git init -q -b shots && git config user.name ci && git config user.email ci@users.noreply.github.com
+          git add -A && git commit -q -m "shots ${{ github.run_id }}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" shots
