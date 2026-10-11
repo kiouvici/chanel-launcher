@@ -16,6 +16,10 @@ for t in 0 1 2 3 4; do
   adb exec-out screencap -p > shots/t${t}_1_media.png
   adb shell am start -n $A --ei page 1 --ei demo 2; sleep 3
   adb exec-out screencap -p > shots/t${t}_1m_media.png
+  adb shell am start -n $A --ei page 1 --ei demo 3; sleep 3
+  adb exec-out screencap -p > shots/t${t}_1l_media.png
+  adb shell am start -n $A --ei page 1 --ei demo 4; sleep 3
+  adb exec-out screencap -p > shots/t${t}_1h_media.png
   adb shell am start -n $A --ei page 0 --ez drawer true; sleep 3
   adb exec-out screencap -p > shots/t${t}_2_drawer.png
   adb shell am start -n $A --ei page 0 --ez drawer true --ei folder 3; sleep 4
@@ -24,7 +28,7 @@ for t in 0 1 2 3 4; do
 done
 adb logcat -d -s AndroidRuntime:E MNS:D > shots/crash.txt || true
 ls -la shots
-adb shell am start -n $A --ei theme 0 --ei page 0 --es sheet settings; sleep 4
+adb shell am start -n $A --ei theme 2 --ei page 0 --es sheet settings; sleep 4
 adb exec-out screencap -p > shots/s_settings.png
 adb shell input keyevent KEYCODE_BACK; sleep 1
 adb shell am start -n $A --ei page 0 --es sheet display; sleep 4

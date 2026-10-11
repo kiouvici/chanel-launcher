@@ -73,6 +73,20 @@ class Look(ctx: Context) {
         get() = p.getInt("libOrder", 0).coerceIn(0, 1)
         set(v) { p.edit().putInt("libOrder", v).apply() }
 
+    /** 마지막으로 들은 곡 (미디어 화면이 비지 않게 — 삼성 미디어 위젯처럼) */
+    var lastTitle: String
+        get() = p.getString("lastTitle", "") ?: ""
+        set(v) { p.edit().putString("lastTitle", v).apply() }
+    var lastArtist: String
+        get() = p.getString("lastArtist", "") ?: ""
+        set(v) { p.edit().putString("lastArtist", v).apply() }
+    var lastAlbum: String
+        get() = p.getString("lastAlbum", "") ?: ""
+        set(v) { p.edit().putString("lastAlbum", v).apply() }
+    var lastPkg: String
+        get() = p.getString("lastPkg", "") ?: ""
+        set(v) { p.edit().putString("lastPkg", v).apply() }
+
     /** Spotify 기기 목록에서 이 폰의 이름 (한 번 고르면 기억) */
     var spPhone: String
         get() = p.getString("spPhone", "") ?: ""
