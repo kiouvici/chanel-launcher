@@ -1596,11 +1596,16 @@ class MainActivity : ComponentActivity(), MediaHost {
             list.addView(segRow("아이콘", listOf("COLOR", "MONO", "GILT"), { repo.iconMode }) { repo.iconMode = it; refreshAll() }, LinearLayout.LayoutParams(-1, dp(56f))); line()
             row("테마 · THE COLLECTION", Look.NAMES[look.theme], true) { showCollection() }; line()
             row("보기 · DISPLAY", null, true) { displaySheet() }; line()
-            row("표지 사진 · THE CAPTION", if (look.photos.isEmpty()) "기본" else "${look.photos.size}장", true) { pickPhotos() }; line()
-            row("여행 사진 · THE VOYAGE", if (look.trips.isEmpty()) "기본" else "${look.trips.size}장", true) { tripEditor() }; line()
-            row("시계 문자판 · THE HOUR", if (look.hourDial == 0) "NOIR" else "IVOIRE", true) { choiceSheet(0) }; line()
-            row("원고지 순서 · THE LIBRARY", if (look.libOrder == 0) "세로" else "가로", true) { choiceSheet(1) }; line()
+            // 테마 전용 메뉴는 그 테마를 쓰는 동안에만 (성훈님 결정)
+            when (look.theme) {
+                Look.CAPTION -> { row("표지 사진 · THE CAPTION", if (look.photos.isEmpty()) "기본" else "${look.photos.size}장", true) { pickPhotos() }; line() }
+                Look.TRAIN -> { row("여행 사진 · THE VOYAGE", if (look.trips.isEmpty()) "기본" else "${look.trips.size}장", true) { tripEditor() }; line() }
+                Look.HOUR -> { row("시계 문자판 · THE HOUR", if (look.hourDial == 0) "NOIR" else "IVOIRE", true) { choiceSheet(0) }; line() }
+                Look.LIBRARY -> { row("원고지 순서 · THE LIBRARY", if (look.libOrder == 0) "세로" else "가로", true) { choiceSheet(1) }; line() }
+            }
             row("HA 연결 · 미디어", if (look.haToken.isBlank()) "연결 안 됨" else "토큰 있음", true) { tokenSheet() }; line()
+            FineVol.init(getSystemService(AUDIO_SERVICE) as android.media.AudioManager)
+            row("폰 볼륨 · PHONE", FineVol.note, false) {}; line()
             row("폴더 추가", null, repo.folderCount() < AppRepo.MAX_FOLDERS) {
                 // 저장을 눌러야 폴더가 생김 (취소하면 아무것도 안 생김)
                 renameSheet("NEW FOLDER", repo.newFolderName(), null, selectAll = true) { repo.addFolder(it); refreshAll() }
@@ -1663,9 +1668,18 @@ class MainActivity : ComponentActivity(), MediaHost {
             sheetKicker(sh, if (kind == 0) "THE HOUR · 문자판" else "THE LIBRARY · 원고지 순서")
             sh.addView(label("누르면 바로 바뀝니다", Style.kr(this, 300), 13f, Style.ink(.6f), 0f, Gravity.START), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14f) })
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            val tiles = ArrayList<View>()
+            val tiles = ArrayList<View>(); val marks = ArrayList<View>()
             val cur = { if (kind == 0) look.hourDial else look.libOrder }
-            fun paint() = tiles.forEachIndexed { i, t -> t.foreground = if (i == cur()) GradientDrawable().apply { setStroke(dp(1.5f), if (kind == 0) H_GOLD else 0xFFC0533F.toInt()) } else GradientDrawable().apply { setStroke(hair(.75f), Style.ink(.2f)) } }
+            val acc = if (kind == 0) H_GOLD else 0xFFC0533F.toInt()
+            // 고른 쪽: 굵은 테(2.5dp) + '● 사용 중' · 안 고른 쪽: 50% 흐리게 (선택이 잘 안 보이던 것 — 성훈님)
+            fun paint() {
+                tiles.forEachIndexed { i, t ->
+                    val on = i == cur()
+                    t.foreground = GradientDrawable().apply { if (on) setStroke(dp(2.5f), acc) else setStroke(hair(.75f), Style.ink(.2f)) }
+                    t.alpha = if (on) 1f else .5f
+                    marks[i].visibility = if (on) View.VISIBLE else View.INVISIBLE
+                }
+            }
             for (i in 0..1) {
                 val t = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setBackgroundColor(if (kind == 0) Color.BLACK else 0xFFFBF8F1.toInt()); setPadding(dp(10f), dp(12f), dp(10f), dp(10f)) }
                 if (kind == 0) {
@@ -1678,6 +1692,8 @@ class MainActivity : ComponentActivity(), MediaHost {
                     t.addView(label(if (i == 0) "세로 순서" else "가로 순서", Style.kr(this, 400), 15f, M_INK, 0f), LinearLayout.LayoutParams(-1, -2))
                     t.addView(label(if (i == 0) "왼쪽 1–15 · 오른쪽 16–30" else "왼쪽 → 오른쪽 · 줄마다 두 개", Style.kr(this, 300), 11.5f, 0xFF8A7E6E.toInt(), 0f), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
                 }
+                val mk = label("●  사용 중", Style.kr(this, 500), 12f, acc, 0f)
+                t.addView(mk, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8f) }); marks += mk
                 t.setOnClickListener {
                     if (kind == 0) { look.hourDial = i; themeCover.rebuild(true) } else { look.libOrder = i; refreshGrid() }
                     paint()
@@ -1694,7 +1710,7 @@ class MainActivity : ComponentActivity(), MediaHost {
     private fun tokenSheet() {
         openSheet { sh ->
             sheetKicker(sh, "HOME ASSISTANT")
-            sh.addView(label("HA 프로필 → 보안 → 장기 액세스 토큰에서 만든 토큰을 붙여 넣어 주십시오. 미디어 페이지의 Apple TV · Marantz · Spotify 보내기와 Marantz 볼륨에 씁니다.",
+            sh.addView(label("HA 프로필 → 보안 → 장기 액세스 토큰에서 만든 토큰을 붙여 넣어 주십시오. 미디어 페이지의 Apple TV · Marantz · 소리 옮기기와 Marantz 볼륨에 씁니다.",
                 Style.kr(this, 300), 13f, Style.ink(.75f), 0f, Gravity.START).apply { setLineSpacing(dpf(4f), 1f) }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16f) })
             val et = EditText(this).apply {
                 setText(look.haToken); hint = "토큰"; setHintTextColor(Style.ink(.35f))

@@ -445,6 +445,8 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     }
     /** 폰 볼륨을 삼성 볼륨 창과 같은 0~150 숫자로 */
     private fun phoneUnits(): Int {
+        FineVol.init(am)
+        FineVol.get(am)?.let { return it }
         val mx = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
         return Math.round(am.getStreamVolume(AudioManager.STREAM_MUSIC) * 150f / mx)
     }
@@ -456,8 +458,10 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         volTouch = SystemClock.uptimeMillis()
         volVal?.text = "$x"
         if (volTarget == 0) {
-            val mx = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-            am.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(x * mx / 150f), 0)
+            if (!FineVol.set(am, x)) {
+                val mx = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(x * mx / 150f), 0)
+            }
         } else {
             val now = SystemClock.uptimeMillis()
             mzPend = x.coerceAtMost(50); mzPendAt = now
