@@ -34,6 +34,7 @@ object Fonts {
     fun serif(ctx: Context) = f(ctx, "Cormorant-500.ttf")        // Cormorant Garamond 500
     fun serifI(ctx: Context) = f(ctx, "Cormorant-400i.ttf")      // Cormorant Garamond 400 기울임
     fun mono(ctx: Context) = f(ctx, "PlexMono-400.ttf")          // IBM Plex Mono
+    fun serifKR(ctx: Context) = f(ctx, "NotoSerifKR-500.otf")    // Noto Serif KR 500 (원고지 · 문장 속 한글)
 }
 
 fun Context.txt(text: CharSequence, tf: Typeface, sp: Float, color: Int, spacing: Float = 0f, g: Int = Gravity.START): TextView =
