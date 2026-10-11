@@ -705,18 +705,18 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         whenLine = L.t("", Fonts.serifI(context), 17f, Style.ink(.7f)).also { L.add(it, 36f, 92f) }
         // 사진 모서리로 붙인 앨범아트
         val plate = FrameLayout(context).apply { setBackgroundColor(Color.WHITE); elevation = L.zf(3f); clipChildren = false }
-        L.add(plate, 86f, 134f, 240f, 240f)
+        L.add(plate, 86f, 118f, 240f, 240f)
         art = ArtView(context).also { plate.addView(it, LayoutParams(-1, -1).apply { val m = L.z(10f); setMargins(m, m, m, m) }) }
         val corner = Style.img(context, "th/photo_corner.webp")
         listOf(Triple(-1f, -1f, -45f), Triple(1f, -1f, 45f), Triple(-1f, 1f, -135f), Triple(1f, 1f, 135f)).forEach { (sx, sy, rot) ->
             val c = View(context).apply { background = Pic(corner, Pic.CONTAIN); rotation = rot; elevation = L.zf(4f) }
             val cx = if (sx < 0) 86f - 9f else 86f + 240f - 44f + 9f
-            val cy = if (sy < 0) 134f - 1f else 134f + 240f - 28f + 1f
+            val cy = if (sy < 0) 118f - 1f else 118f + 240f - 28f + 1f
             L.add(c, cx, cy, 44f, 28f); nowViews += c
         }
-        title = L.t("", Fonts.serifI(context), 14f, Style.ink(.65f), 0f, Gravity.CENTER).also { L.addLR(it, 36f, 36f, 386f) }
+        title = L.t("", Fonts.serifI(context), 14f, Style.ink(.65f), 0f, Gravity.CENTER).also { L.addLR(it, 36f, 36f, 370f) }
         sentence = L.t("", Fonts.serif(context), 25f, Style.INK, 0f, Gravity.CENTER).apply { setLineSpacing(L.zf(4f), 1f); maxLines = 3; ellipsize = android.text.TextUtils.TruncateAt.END }
-        L.addLR(sentence!!, 36f, 36f, 414f)
+        L.addLR(sentence!!, 36f, 36f, 396f)
         val pv = LineProg(context, Style.ink(.3f), Style.INK, L.zf(1f), L.zf(2f), marker = Style.img(context, "th/bookmark.webp"), markerW = L.zf(14f), markerH = L.zf(34f))
         L.addLR(pv, 29f, 29f, 476f, 38f); prog = { pv.p = it }
         t1 = L.t("", Style.jost(context, 400), 11f, Style.ink(.65f), .1f, Gravity.END).also { L.addLR(it, 36f, 36f, 489f) }
