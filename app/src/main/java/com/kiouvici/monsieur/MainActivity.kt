@@ -137,6 +137,7 @@ class MainActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
+                    sheetBg != null -> hideSettingsSheet()
                     card.visibility == View.VISIBLE -> hideCard()
                     openP > 0f -> animateOpen(0f)
                     cur == 1 && web.canGoBack() -> web.goBack()
@@ -156,7 +157,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun closeAllNow() { hideCard(); if (::search.isInitialized) search.setText(""); anim?.cancel(); setOpen(0f) }
+    private fun closeAllNow() { hideSettingsSheet(); hideCard(); if (::search.isInitialized) search.setText(""); anim?.cancel(); setOpen(0f) }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -437,6 +438,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun closeAll() {
+        hideSettingsSheet()
         hideCard()
         search.setText("")
         animateOpen(0f)
@@ -502,9 +504,16 @@ class MainActivity : ComponentActivity() {
         sWrap.addView(SearchGlyph(), FrameLayout.LayoutParams(dp(16f), dp(16f), Gravity.CENTER_VERTICAL).apply { leftMargin = dp(2f) })
         col.addView(sWrap, LinearLayout.LayoutParams(-1, dp(44f)).apply { topMargin = dp(10f) })
 
-        folio = label("31 · RUE CAMBON · Nº 10", Style.jost(this, 300), 9f, Style.ivory(.4f), .25f)
+        // 폴리오(왼쪽) + RÉGLAGES(오른쪽) — 샤넬팀 5:2
+        val foot = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        folio = label("31 · RUE CAMBON · Nº 10", Style.jost(this, 300), 9f, Style.ivory(.4f), .25f, Gravity.START or Gravity.CENTER_VERTICAL)
         folio.setOnClickListener { if (repo.unassigned().isNotEmpty()) showUnassigned() }
-        col.addView(folio, LinearLayout.LayoutParams(-1, dp(22f)).apply { topMargin = dp(8f) })
+        foot.addView(folio, LinearLayout.LayoutParams(0, -1, 1f))
+        val reg = label("RÉGLAGES", Style.jost(this, 300), 9f, Style.ivory(.4f), .25f, Gravity.END or Gravity.CENTER_VERTICAL)
+        reg.contentDescription = "설정"
+        reg.setOnClickListener { showSettingsSheet() }
+        foot.addView(reg, LinearLayout.LayoutParams(dp(88f), -1))
+        col.addView(foot, LinearLayout.LayoutParams(-1, dp(44f)))
     }
 
     private inner class SearchGlyph : View(this@MainActivity) {
@@ -722,6 +731,46 @@ class MainActivity : ComponentActivity() {
         if (!::search.isInitialized) return
         (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(search.windowToken, 0)
         search.clearFocus()
+    }
+
+    // ───────── RÉGLAGES 바텀시트 ─────────
+    private var sheetBg: View? = null
+    private var sheet: LinearLayout? = null
+
+    private fun showSettingsSheet() {
+        hideKeyboard()
+        val bg = View(this).apply { setBackgroundColor(Color.BLACK); alpha = 0f; elevation = dpf(30f); setOnClickListener { hideSettingsSheet() } }
+        val sh = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = BitmapDrawable(resources, Style.img(this@MainActivity, "card.webp"))
+            elevation = dpf(32f); isClickable = true
+            setPadding(dp(24f), dp(24f), dp(24f), dp(24f))
+        }
+        fun row(text: String, last: Boolean, go: () -> Unit) {
+            val t = label(text, Style.kr(this, 300), 14f, Style.INK, 0f, Gravity.START or Gravity.CENTER_VERTICAL)
+            t.setOnClickListener { hideSettingsSheet(); go() }
+            sh.addView(t, LinearLayout.LayoutParams(-1, dp(56f)))
+            if (!last) sh.addView(View(this).apply { setBackgroundColor(Style.ink(.1f)) }, LinearLayout.LayoutParams(-1, dp(1f)))
+        }
+        row("기본 홈 앱 바꾸기", false) { openSafely(Intent(Settings.ACTION_HOME_SETTINGS)) }
+        row("알림 점 허용", true) { openSafely(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+        root.addView(bg, FrameLayout.LayoutParams(-1, -1))
+        root.addView(sh, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+        sheetBg = bg; sheet = sh
+        bg.animate().alpha(.4f).setDuration(if (reduceMotion) 120 else 280).start()
+        if (!reduceMotion) { sh.translationY = dpf(200f); sh.animate().translationY(0f).setDuration(280).setInterpolator(EASE).start() }
+    }
+
+    private fun hideSettingsSheet(): Boolean {
+        val bg = sheetBg ?: return false
+        root.removeView(bg); sheet?.let { root.removeView(it) }
+        sheetBg = null; sheet = null
+        return true
+    }
+
+    private fun openSafely(i: Intent) {
+        try { startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        catch (e: Exception) { startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }
 
     // ───────── 공통 ─────────
