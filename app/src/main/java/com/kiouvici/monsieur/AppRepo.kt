@@ -4,6 +4,12 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
+import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.Drawable
 import org.json.JSONArray
 import org.json.JSONObject
@@ -15,6 +21,8 @@ data class AppEntry(
     val label: String,   // 화면에 보이는 이름 (성훈님이 바꾼 이름이 있으면 그것)
     val orig: String,    // 앱 원래 이름 (초기 배정 찾기용)
     val icon: Drawable,
+    val bmp: Bitmap,     // 둥근 사각으로 맞춘 아이콘 (한 번 만들어 재사용)
+    val cho: String,     // 초성 (ㅋㅋㅇ → 카카오톡)
 ) {
     val key: String get() = "$pkg/$cls"
 }
@@ -81,10 +89,6 @@ class AppRepo(private val ctx: Context) {
     private fun norm(s: String) = Normalizer.normalize(s, Normalizer.Form.NFC).lowercase()
         .replace(Regex("[\\s\\u00A0\\u200B-\\u200D\\u2060\\uFEFF]+"), "")
 
-    init {
-        load()
-        reload()
-    }
 
     // ───────── 저장 ─────────
     private fun load() {
@@ -143,17 +147,54 @@ class AppRepo(private val ctx: Context) {
     }
 
     // ───────── 앱 목록 ─────────
-    fun reload() {
+    /** 앱 목록 + 아이콘 비트맵 만들기 (무거움 — 뒤 스레드에서 불러도 됨) */
+    private val bmpCache = java.util.concurrent.ConcurrentHashMap<String, Bitmap>()
+    fun scan(fresh: Boolean): List<AppEntry> {
+        if (fresh) bmpCache.clear()
         val pm = ctx.packageManager
         val main = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val list = pm.queryIntentActivities(main, PackageManager.MATCH_ALL)
-        apps = list.filter { it.activityInfo.packageName != ctx.packageName }
+        val lab = HashMap(labels)
+        return list.filter { it.activityInfo.packageName != ctx.packageName }
             .map {
                 val o = it.loadLabel(pm).toString()
-                AppEntry(it.activityInfo.packageName, it.activityInfo.name, labels[it.activityInfo.packageName] ?: o, o, it.loadIcon(pm))
+                val k = it.activityInfo.packageName + "/" + it.activityInfo.name
+                val ic = it.loadIcon(pm)
+                val b = bmpCache.getOrPut(k) { shape(ic) }
+                val l = lab[it.activityInfo.packageName] ?: o
+                AppEntry(it.activityInfo.packageName, it.activityInfo.name, l, o, ic, b, chosung(l) + " " + chosung(o))
             }
             .sortedBy { it.label }
-        applyPreset()
+    }
+
+    /** 메인 스레드에서: 새 목록으로 바꾸고 초기 배정 */
+    fun setApps(list: List<AppEntry>) { apps = list; applyPreset() }
+
+    fun reload(fresh: Boolean = false) = setApps(scan(fresh))
+
+    /** 아이콘을 둥근 사각 하나로 맞춤 (샤넬팀 #18 · 성훈님 결정)
+     *  - 요즘 방식(AdaptiveIcon): 시스템 모양 그대로
+     *  - 옛 방식(흰 정사각 등): 둥근 사각(모서리 23%)으로 자르고 빈 곳은 아이보리 */
+    private fun shape(d: Drawable): Bitmap {
+        val size = (52 * ctx.resources.displayMetrics.density * 2).toInt()   // 52dp의 2배로 만들어 선명하게
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        if (d is AdaptiveIconDrawable) {
+            d.setBounds(0, 0, size, size); d.draw(c)
+        } else {
+            val rad = size * .23f
+            val path = Path().apply { addRoundRect(RectF(0f, 0f, size.toFloat(), size.toFloat()), rad, rad, Path.Direction.CW) }
+            c.save(); c.clipPath(path)
+            c.drawColor(Style.IVORY)
+            d.setBounds(0, 0, size, size); d.draw(c)
+            c.restore()
+        }
+        return bmp
+    }
+
+    private val CHO = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
+    private fun chosung(s: String) = buildString {
+        s.forEach { ch -> if (ch in '\uAC00'..'\uD7A3') append(CHO[(ch.code - 0xAC00) / 588]) else if (!ch.isWhitespace()) append(ch.lowercaseChar()) }
     }
 
     private fun applyPreset() {
@@ -179,14 +220,34 @@ class AppRepo(private val ctx: Context) {
     fun isRenamed(id: String) = id in DEFAULT_FOLDERS && names.containsKey(id)
     fun hasRenamedDefaults() = names.keys.any { it in DEFAULT_FOLDERS }
 
-    fun addFolder(): String? {
-        if (folderIds.size >= MAX_FOLDERS) return null
-        val id = "u" + System.currentTimeMillis()
+    /** 새 폴더 기본 이름 ('새 폴더', 겹치면 '새 폴더 2') */
+    fun newFolderName(): String {
         val taken = folderIds.map { nameOf(it) }.toSet()
         var n = "새 폴더"; var k = 2
         while (n in taken) { n = "새 폴더 $k"; k++ }
-        folderIds.add(id); names[id] = n; save()
+        return n
+    }
+
+    /** 저장을 누를 때 만듦 (취소하면 아무것도 안 생김 — 샤넬팀 #2) */
+    fun addFolder(name: String): String? {
+        if (folderIds.size >= MAX_FOLDERS) return null
+        val id = "u" + System.currentTimeMillis()
+        folderIds.add(id); names[id] = name.trim().ifEmpty { newFolderName() }; save()
         return id
+    }
+
+    /** 지운 기본 폴더 되살리기 (샤넬팀 #19) */
+    fun deletedDefaults() = DEFAULT_FOLDERS.filter { it !in folderIds }
+    fun restoreDefaults() {
+        deletedDefaults().forEach { if (folderIds.size < MAX_FOLDERS) folderIds.add(it) }
+        save()
+    }
+
+    /** 폴더 카드 안내 문구는 처음 3번만 (샤넬팀 #10) */
+    fun takeHint(): Boolean {
+        val n = prefs.getInt("hintShown", 0)
+        if (n >= 3) return false
+        prefs.edit().putInt("hintShown", n + 1).apply(); return true
     }
 
     fun renameFolder(id: String, name: String) {
@@ -265,7 +326,8 @@ class AppRepo(private val ctx: Context) {
     fun search(q: String): List<AppEntry> {
         val t = q.trim().lowercase()
         if (t.isEmpty()) return emptyList()
-        return apps.filter { it.label.lowercase().contains(t) || it.orig.lowercase().contains(t) || it.pkg.lowercase().contains(t) }
+        val q = t.replace(" ", "")
+        return apps.filter { it.label.lowercase().contains(t) || it.orig.lowercase().contains(t) || it.pkg.lowercase().contains(t) || it.cho.contains(q) }
     }
 
     /** 실제로 많이 연 폴더 상위 3개 (금 테두리) — 앱을 연 그 폴더에만 셈 */
@@ -283,5 +345,12 @@ class AppRepo(private val ctx: Context) {
             .setComponent(ComponentName(a.pkg, a.cls))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
         ctx.startActivity(i)
+    }
+
+    // 초기화는 맨 끝에서 — 위의 모든 필드(CHO, bmpCache, preset 등)가 먼저 만들어진 뒤에 실행해야 함
+    // (필드보다 init이 앞에 있으면 null이라 앱이 시작하자마자 꺼짐 — build-13 때와 같은 실수 방지)
+    init {
+        load()
+        reload()
     }
 }

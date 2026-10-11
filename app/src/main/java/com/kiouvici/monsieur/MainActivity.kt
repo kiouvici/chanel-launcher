@@ -142,9 +142,8 @@ class MainActivity : ComponentActivity() {
             val ime = ins.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime())
             val barsChanged = sb.top != sbTop || sb.bottom != navBot
             sbTop = sb.top; navBot = sb.bottom; imeBot = ime.bottom
-            sheet?.let { sh ->
-                (sh.layoutParams as? FrameLayout.LayoutParams)?.let { it.bottomMargin = (imeBot - navBot).coerceAtLeast(0); sh.requestLayout() }
-            }
+            sheet?.let { placeSheet(it) }
+            if (::card.isInitialized && card.visibility == View.VISIBLE && cardFolder == "__search") root.post { fitCard() }
             loginLayer?.setPadding(0, sbTop, 0, maxOf(navBot, ime.bottom))
             if (::box.isInitialized) box.setPadding(0, 0, 0, maxOf(navBot, ime.bottom))
             // 키보드만 오르내릴 때는 전체 재배치를 하지 않음
@@ -168,7 +167,14 @@ class MainActivity : ComponentActivity() {
             addAction(Intent.ACTION_DATE_CHANGED); addAction(Intent.ACTION_TIMEZONE_CHANGED)
         })
 
-        BadgeService.onChange = { runOnUiThread { refreshGrid(); cardFolder?.let { refreshCardApps() } } }
+        BadgeService.onChange = { runOnUiThread { if (openP > 0f) refreshBadges() else badgeDirty = true } }
+
+        // 앱 설치·삭제·바뀜 때만 앱 목록을 다시 읽음 (뒤 스레드) — 예전엔 홈에 올 때마다 300개를 다시 읽었음
+        registerReceiver(pkgRx, android.content.IntentFilter().apply {
+            addAction(Intent.ACTION_PACKAGE_ADDED); addAction(Intent.ACTION_PACKAGE_REMOVED)
+            addAction(Intent.ACTION_PACKAGE_CHANGED); addAction(Intent.ACTION_PACKAGE_REPLACED)
+            addDataScheme("package")
+        })
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -209,6 +215,28 @@ class MainActivity : ComponentActivity() {
         return true
     }
 
+    private val worker = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val pkgRx = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: android.content.Context?, i: Intent?) { reloadAppsInBackground() }
+    }
+    private fun reloadAppsInBackground() {
+        worker.execute {
+            val list = try { repo.scan(true) } catch (e: Exception) { null }
+            if (list != null) runOnUiThread { repo.setApps(list); refreshAll() }
+        }
+    }
+
+    private var badgeDirty = false
+    private val gridDots = HashMap<String, View>()
+    private val cardDots = HashMap<String, MutableList<View>>()
+    /** 알림 점만 다시 켜고 끔 (서랍 전체를 다시 그리지 않음) */
+    private fun refreshBadges() {
+        badgeDirty = false
+        val b = BadgeService.active
+        gridDots.forEach { (id, v) -> v.visibility = if (repo.appsIn(id).any { it.pkg in b }) View.VISIBLE else View.GONE }
+        cardDots.forEach { (pkg, vs) -> vs.forEach { it.visibility = if (pkg in b) View.VISIBLE else View.GONE } }
+    }
+
     private fun closeAllNow() { hideMenu(); hideSettingsSheet(); hideCard(); if (::search.isInitialized) search.setText(""); anim?.cancel(); setOpen(0f) }
 
     override fun onNewIntent(intent: Intent) {
@@ -223,7 +251,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        repo.reload()
         refreshGrid()
         updateDate()
         root.postDelayed({ refreshWeather() }, 1500)
@@ -666,6 +693,7 @@ class MainActivity : ComponentActivity() {
         // 상자를 '닫을 때만' 키보드를 내림. (예전에는 닫혀 있을 때마다 내려서,
         //  로그인 창에서 키보드가 뜨면 화면 재배치 → 곧바로 키보드가 내려가는 문제가 있었음)
         if (p == 0f && wasOpen) hideKeyboard()
+        if (p > 0f && !wasOpen && badgeDirty) refreshBadges()
     }
 
     private var anim: ValueAnimator? = null
@@ -812,6 +840,7 @@ class MainActivity : ComponentActivity() {
     private fun refreshGrid() {
         if (!::grid.isInitialized) return
         grid.removeAllViews()
+        gridDots.clear()
         val folders = repo.folders()
         val w = resources.displayMetrics.widthPixels - dp(32f)
         val gap = dp(10f)
@@ -857,7 +886,9 @@ class MainActivity : ComponentActivity() {
                 leftMargin = pad + (k % 2) * (ic + g); topMargin = pad + (k / 2) * (ic + g)
             })
         }
-        if (badge) cv.addView(dot(), FrameLayout.LayoutParams(dp(6f), dp(6f), Gravity.END or Gravity.TOP))
+        val gd = dot().apply { visibility = if (badge) View.VISIBLE else View.GONE }
+        cv.addView(gd, FrameLayout.LayoutParams(dp(6f), dp(6f), Gravity.END or Gravity.TOP))
+        gridDots[id] = gd
         cell.addView(cv, LinearLayout.LayoutParams(size, size))
         val t = label(shortName(repo.nameOf(id)), Style.kr(this, 300), 11f, Style.ivory(.72f), 0f).apply {
             maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
@@ -879,10 +910,9 @@ class MainActivity : ComponentActivity() {
                     val parts = e.clipData?.getItemAt(0)?.text?.toString()?.split("\n")
                     val pkg = parts?.getOrNull(0)
                     val src = parts?.getOrNull(1)?.takeIf { it.isNotEmpty() }
-                    if (pkg != null) repo.move(pkg, src, id)
+                    if (pkg != null) { repo.move(pkg, src, id); grid.post { refreshGrid() } }
                     true
                 }
-                DragEvent.ACTION_DRAG_ENDED -> { cell.post { refreshGrid() }; true }
                 else -> true
             }
         }
@@ -912,7 +942,7 @@ class MainActivity : ComponentActivity() {
     /** 앱마다 아이콘을 따로 복사해 씀 — 같은 아이콘을 여러 칸이 나눠 쓰면 한 칸에 입힌 MONO·GILT 색이
      *  다른 칸에도 남아, COLOR로 돌아와도 폴더 표지 색이 안 바뀌던 문제 */
     private fun iconOf(a: AppEntry): android.graphics.drawable.Drawable =
-        a.icon.constantState?.newDrawable(resources)?.mutate() ?: a.icon
+        BitmapDrawable(resources, a.bmp).apply { isFilterBitmap = true }
 
     private fun styleIcon(iv: ImageView) {
         when (repo.iconMode) {
@@ -924,6 +954,7 @@ class MainActivity : ComponentActivity() {
 
     // ───────── ③ 카드 (폴더 열림) ─────────
     private lateinit var closeBtn: TextView
+    private lateinit var cardEmpty: TextView
     private lateinit var pickBar: LinearLayout
     private var pickFolder: String? = null          // 표지 앱 고르기 중인 폴더
     private val pickSel = ArrayList<String>()
@@ -947,6 +978,8 @@ class MainActivity : ComponentActivity() {
         cardApps = GridLayout(this).apply { columnCount = 4 }
         cardScroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(cardApps) }
         col.addView(cardScroll, LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(14f) })
+        cardEmpty = label("비어 있습니다 · 다른 폴더의 앱을 길게 눌러 끌어 오세요", Style.kr(this, 300), 12f, Style.ink(.45f), 0f, Gravity.START).apply { visibility = View.GONE }
+        col.addView(cardEmpty, LinearLayout.LayoutParams(-1, -2).apply { leftMargin = dp(26f); rightMargin = dp(26f); topMargin = dp(8f); bottomMargin = dp(8f) })
         closeBtn = label("폴더 닫기", Style.kr(this, 400), 13f, Style.INK, .04f).apply {
             gravity = Gravity.CENTER
             background = GradientDrawable().apply { setStroke(dp(1f), Style.INK) }
@@ -1008,6 +1041,7 @@ class MainActivity : ComponentActivity() {
         cardKicker.text = "FOLDER NO. %02d".format(repo.folders().indexOf(id) + 1)
         cardTitle.text = repo.nameOf(id)
         cardHint.text = "길게 눌러 메뉴 · 끌어서 다른 폴더로 옮기기"
+        cardHint.visibility = if (repo.takeHint()) View.VISIBLE else View.GONE
         setPickUi(false)
         refreshCardApps()
         if (wasOpen) fitCard() else revealCard()
@@ -1020,6 +1054,7 @@ class MainActivity : ComponentActivity() {
         cardFolder = id
         cardTitle.text = repo.nameOf(id)
         cardHint.text = "표지에 놓을 앱을 순서대로 누르세요 · 최대 4개"
+        cardHint.visibility = View.VISIBLE
         setPickUi(true)
         updatePickKicker()
         refreshCardApps()
@@ -1041,6 +1076,7 @@ class MainActivity : ComponentActivity() {
         cardKicker.text = "UNSORTED"
         cardTitle.text = "미분류"
         cardHint.text = "길게 눌러 끌어서 넣을 폴더 위에 놓으세요"
+        cardHint.visibility = View.VISIBLE
         refreshCardApps()
         revealCard()
     }
@@ -1056,6 +1092,7 @@ class MainActivity : ComponentActivity() {
         cardKicker.text = "SEARCH"
         cardTitle.text = "‘$q’"
         cardHint.text = if (searchList.isEmpty()) "찾는 앱이 없습니다" else "앱 ${searchList.size}개"
+        cardHint.visibility = View.VISIBLE
         refreshCardApps()
         if (card.visibility != View.VISIBLE) revealCard() else fitCard()
     }
@@ -1064,10 +1101,12 @@ class MainActivity : ComponentActivity() {
         val f = cardFolder ?: return
         val list = when (f) {
             "__unassigned" -> repo.unassigned()
-            "__search" -> searchList.take(24)
+            "__search" -> searchList
             else -> repo.appsIn(f)
         }
         cardApps.removeAllViews()
+        cardDots.clear()
+        cardEmpty.visibility = if (list.isEmpty() && !f.startsWith("__")) View.VISIBLE else View.GONE
         val badges = BadgeService.active
         val src = if (f.startsWith("__")) null else f
         list.forEach { a -> cardApps.addView(appCell(a, a.pkg in badges, src), GridLayout.LayoutParams().apply { width = dp(78f) }) }
@@ -1080,17 +1119,19 @@ class MainActivity : ComponentActivity() {
         val fr = FrameLayout(this)
         val iv = ImageView(this).apply { setImageDrawable(iconOf(a)); styleIcon(this) }
         fr.addView(iv, FrameLayout.LayoutParams(dp(52f), dp(52f)))
-        if (badge) fr.addView(dot(), FrameLayout.LayoutParams(dp(6f), dp(6f), Gravity.END or Gravity.TOP))
+        val cd = dot().apply { visibility = if (badge) View.VISIBLE else View.GONE }
+        fr.addView(cd, FrameLayout.LayoutParams(dp(6f), dp(6f), Gravity.END or Gravity.TOP))
+        cardDots.getOrPut(a.pkg) { ArrayList() }.add(cd)
         // 표지 앱 고르기: 오른쪽 위 18dp 칸 (고른 앱은 금 바탕에 순서 숫자)
         val pf = pickFolder
         if (pf != null && src == pf) {
             val n = pickSel.indexOf(a.pkg)
             val boxv = label(if (n >= 0) "${n + 1}" else "", Style.jost(this, 400), 10f, Style.IVORY, 0f).apply {
                 gravity = Gravity.CENTER
-                background = GradientDrawable().apply { if (n >= 0) setColor(Style.GOLD) else { setColor(Style.ivory(.9f)); setStroke(dp(1f), Style.ink(.4f)) } }
-                translationX = dpf(5f); translationY = -dpf(5f)
+                background = GradientDrawable().apply { if (n >= 0) setColor(Style.GOLD) else { setColor(Style.IVORY); setStroke(dp(1f), Style.ink(.4f)) } }
+                elevation = dpf(2f)
             }
-            fr.addView(boxv, FrameLayout.LayoutParams(dp(18f), dp(18f), Gravity.END or Gravity.TOP))
+            fr.addView(boxv, FrameLayout.LayoutParams(dp(18f), dp(18f), Gravity.END or Gravity.TOP).apply { topMargin = dp(2f); rightMargin = dp(2f) })
         }
         cell.addView(fr, LinearLayout.LayoutParams(dp(52f), dp(52f)))
         val t = label(a.label, Style.kr(this, 300), 11f, Style.ink(.8f), 0f).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
@@ -1170,7 +1211,9 @@ class MainActivity : ComponentActivity() {
     /** 앱이 많아 카드가 화면보다 길면, 카드를 화면 안에 맞추고 앱 목록만 스크롤 — '폴더 닫기'가 늘 보이게 */
     private fun fitCard() {
         val top = sbTop + dp(64f)
-        val avail = root.height - top - navBot - dp(24f)
+        // 검색 중에는 키보드와 검색창(44)·폴리오(44)·여백 위에서 끝나게 (샤넬팀 #5)
+        val avail = if (cardFolder == "__search") root.height - top - maxOf(navBot, imeBot) - dp(120f)
+                    else root.height - top - navBot - dp(24f)
         (card.layoutParams as FrameLayout.LayoutParams).apply { topMargin = top; height = FrameLayout.LayoutParams.WRAP_CONTENT }
         (cardScroll.layoutParams as LinearLayout.LayoutParams).apply { height = LinearLayout.LayoutParams.WRAP_CONTENT; weight = 0f }
         (card.getChildAt(0).layoutParams as FrameLayout.LayoutParams).height = FrameLayout.LayoutParams.WRAP_CONTENT
@@ -1195,7 +1238,9 @@ class MainActivity : ComponentActivity() {
 
     private fun hideCard() {
         if (!::card.isInitialized) return
+        val wasSearch = cardFolder == "__search"
         cardFolder = null
+        if (wasSearch && ::search.isInitialized && !search.text.isNullOrEmpty()) search.setText("")
         pickFolder = null
         card.visibility = View.GONE
         if (::cardScrim.isInitialized) cardScrim.visibility = View.GONE
@@ -1261,7 +1306,7 @@ class MainActivity : ComponentActivity() {
     /** 앱 메뉴: 이름 바꾸기 · 다른 폴더에도 넣기 · 이 폴더에서 빼기 · 숨기기 · 앱 정보 */
     private fun appMenu(anchor: View, a: AppEntry, src: String?) {
         val items = ArrayList<Pair<String, () -> Unit>>()
-        items += item("이름 바꾸기") { renameSheet("앱 이름 바꾸기", a.label, a.orig) { repo.renameApp(a.pkg, it); refreshAll() } }
+        items += item("이름 바꾸기") { renameSheet("RENAME", a.label, a.orig) { repo.renameApp(a.pkg, it); refreshAll() } }
         items += item("다른 폴더에도 넣기") { folderPickSheet(a) }
         if (src != null) items += item("이 폴더에서 빼기") { repo.removeFrom(a.pkg, src); refreshAll() }
         if (repo.isHidden(a.pkg)) items += item("다시 보이기") { repo.unhide(a.pkg); refreshAll() }
@@ -1275,7 +1320,7 @@ class MainActivity : ComponentActivity() {
     /** 폴더 메뉴: 이름 바꾸기 · 표지 앱 고르기 · 표지 원래대로 · 원래 이름으로 · 폴더 삭제 */
     private fun folderMenu(anchor: View, id: String) {
         val items = ArrayList<Pair<String, () -> Unit>>()
-        items += item("폴더 이름 바꾸기") { renameSheet("폴더 이름 바꾸기", repo.nameOf(id), null) { repo.renameFolder(id, it); refreshAll() } }
+        items += item("폴더 이름 바꾸기") { renameSheet("RENAME", repo.nameOf(id), null) { repo.renameFolder(id, it); refreshAll() } }
         items += item("표지 앱 고르기") { startPick(id) }
         if (repo.hasCustomCover(id)) items += item("표지 원래대로") { repo.clearCover(id); refreshAll() }
         if (repo.isRenamed(id)) items += item("원래 이름으로") { repo.resetName(id); refreshAll() }
@@ -1294,23 +1339,32 @@ class MainActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
             background = BitmapDrawable(resources, Style.img(this@MainActivity, "card.webp"))
             elevation = dpf(32f); isClickable = true
-            setPadding(dp(24f), dp(24f), dp(24f), dp(24f) + navBot)
         }
         build(sh)
         root.addView(bg, FrameLayout.LayoutParams(-1, -1))
-        root.addView(sh, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { bottomMargin = (imeBot - navBot).coerceAtLeast(0) })
+        root.addView(sh, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+        placeSheet(sh)
         sheetBg = bg; sheet = sh
         bg.animate().alpha(.4f).setDuration(if (reduceMotion) 120 else 280).start()
         if (!reduceMotion) { sh.translationY = dpf(200f); sh.animate().translationY(0f).setDuration(280).setInterpolator(EASE).start() }
     }
 
+    /** 키보드가 있으면 키보드 바로 위 + 아래 여백 24dp, 없으면 제스처 영역 + 24dp (빈칸 두 번 계산하던 문제 — 샤넬팀 #7) */
+    private fun placeSheet(sh: LinearLayout) {
+        val ime = imeBot > navBot
+        sh.setPadding(dp(24f), dp(24f), dp(24f), dp(24f) + if (ime) 0 else navBot)
+        (sh.layoutParams as? FrameLayout.LayoutParams)?.let { it.bottomMargin = if (ime) imeBot else 0; sh.requestLayout() }
+    }
+
+    /** 시트 머리글: 카드 키커와 같은 Jost 400 10sp, 자간 .3em, 검정 55% (샤넬팀 #9) */
     private fun sheetKicker(sh: LinearLayout, text: String) {
-        sh.addView(label(text, Style.kr(this, 400), 12f, Style.ink(.55f), .04f, Gravity.START), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12f) })
+        sh.addView(label(text, Style.jost(this, 400), 10f, Style.ink(.55f), .3f, Gravity.START), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14f) })
     }
 
     private fun showSettingsSheet() {
         hideKeyboard()
         openSheet { sh ->
+            sheetKicker(sh, "SETTINGS")
             fun line() = sh.addView(View(this).apply { setBackgroundColor(Style.ink(.1f)) }, LinearLayout.LayoutParams(-1, dp(1f)))
             fun row(text: String, right: String?, enabled: Boolean, go: () -> Unit) {
                 val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -1339,24 +1393,26 @@ class MainActivity : ComponentActivity() {
             paintSegs()
             sh.addView(ir, LinearLayout.LayoutParams(-1, dp(56f))); line()
             row("폴더 추가", null, repo.folderCount() < AppRepo.MAX_FOLDERS) {
-                val id = repo.addFolder() ?: return@row
-                refreshGrid()
-                renameSheet("새 폴더 이름", repo.nameOf(id), null) { repo.renameFolder(id, it); refreshAll() }
+                // 저장을 눌러야 폴더가 생김 (취소하면 아무것도 안 생김)
+                renameSheet("NEW FOLDER", repo.newFolderName(), null, selectAll = true) { repo.addFolder(it); refreshAll() }
             }; line()
             val hc = repo.hiddenApps().size
             row("숨긴 앱", "$hc", hc > 0) { hiddenSheet() }; line()
             row("폴더 이름 모두 원래대로", null, repo.hasRenamedDefaults()) { repo.resetAllNames(); refreshAll() }; line()
+            val dd = repo.deletedDefaults().size
+            if (dd > 0) { row("기본 폴더 되살리기", "$dd", repo.folderCount() < AppRepo.MAX_FOLDERS) { repo.restoreDefaults(); refreshAll() }; line() }
             row("기본 홈 앱 바꾸기", null, true) { openSafely(Intent(Settings.ACTION_HOME_SETTINGS)) }; line()
             row("알림 점 허용", null, true) { openSafely(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
         }
     }
 
     /** 이름 바꾸기 시트 (200dp, 밑줄 입력칸 16sp, 취소 · 저장). 빈 칸으로 저장하면 원래 이름 */
-    private fun renameSheet(title: String, current: String, original: String?, onSave: (String) -> Unit) {
+    private fun renameSheet(title: String, current: String, original: String?, selectAll: Boolean = false, onSave: (String) -> Unit) {
         openSheet { sh ->
             sheetKicker(sh, title)
             val et = EditText(this).apply {
-                setText(current); setSelection(current.length)
+                setText(current)
+                if (selectAll) selectAll() else setSelection(current.length)   // 새 폴더는 전체 선택 → 바로 덮어쓰기
                 typeface = Style.kr(this@MainActivity, 300); textSize = 16f; setTextColor(Style.INK)
                 if (original != null) { hint = original; setHintTextColor(Style.ink(.35f)) }
                 setSingleLine(); background = null; setPadding(0, 0, 0, dp(6f))
@@ -1370,7 +1426,6 @@ class MainActivity : ComponentActivity() {
             et.setOnEditorActionListener { _, _, _ -> save(); true }
             sh.addView(buttonPair("취소", "저장", false, { hideIme(et); hideSettingsSheet() }) { save() },
                 LinearLayout.LayoutParams(-1, dp(44f)).apply { topMargin = dp(28f) })
-            sh.minimumHeight = dp(200f)
             et.post {
                 et.requestFocus()
                 (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showSoftInput(et, InputMethodManager.SHOW_IMPLICIT)
@@ -1386,7 +1441,8 @@ class MainActivity : ComponentActivity() {
     private fun folderPickSheet(a: AppEntry) {
         val sel = LinkedHashSet(repo.foldersFor(a.pkg))
         openSheet { sh ->
-            sheetKicker(sh, "‘${a.label}’ 넣을 폴더")
+            sheetKicker(sh, "ADD TO FOLDERS")
+            sh.addView(label(a.label, Style.kr(this, 300), 16f, Style.INK, 0f, Gravity.START), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16f) })
             val ids = repo.folders()
             val inner = root.width - dp(48f)
             val gap = dp(6f)
@@ -1424,7 +1480,7 @@ class MainActivity : ComponentActivity() {
     /** 숨긴 앱 목록 — 다시 보이기 */
     private fun hiddenSheet() {
         openSheet { sh ->
-            sheetKicker(sh, "숨긴 앱")
+            sheetKicker(sh, "HIDDEN APPS")
             val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             fun fill() {
                 list.removeAllViews()
@@ -1452,7 +1508,7 @@ class MainActivity : ComponentActivity() {
     private fun deleteSheet(id: String) {
         val m = repo.orphanCount(id)
         openSheet { sh ->
-            sheetKicker(sh, "폴더 삭제")
+            sheetKicker(sh, "DELETE FOLDER")
             sh.addView(label("‘${repo.nameOf(id)}’ 폴더를 삭제합니다. 다른 폴더에 없는 앱 ${m}개는 UNSORTED로 갑니다.",
                 Style.kr(this, 300), 14f, Style.INK, 0f, Gravity.START).apply { setLineSpacing(dpf(4f), 1f) }, LinearLayout.LayoutParams(-1, -2))
             sh.addView(buttonPair("취소", "삭제", true, { hideSettingsSheet() }) {
@@ -1483,14 +1539,10 @@ class MainActivity : ComponentActivity() {
         }
 
     override fun onDestroy() {
-        // 화면이 꺼지면 표지로 돌려 둠 → 켤 때 항상 표지부터. 날짜는 매 분 확인
-        registerReceiver(sysRx, android.content.IntentFilter().apply {
-            addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_TIME_TICK)
-            addAction(Intent.ACTION_DATE_CHANGED); addAction(Intent.ACTION_TIMEZONE_CHANGED)
-        })
-
         BadgeService.onChange = null
         try { unregisterReceiver(sysRx) } catch (_: Exception) {}
+        try { unregisterReceiver(pkgRx) } catch (_: Exception) {}
+        worker.shutdown()
         super.onDestroy()
     }
 }
