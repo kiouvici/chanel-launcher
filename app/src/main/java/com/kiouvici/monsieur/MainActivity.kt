@@ -343,7 +343,7 @@ class MainActivity : ComponentActivity() {
         c.addView(View(this).apply {
             background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Style.ink(.4f), Style.ink(0f)))
         }, FrameLayout.LayoutParams(-1, dp(72f)))
-        wordmark = label("CHANEL", Style.jost(this, 300), 22f, Style.IVORY, .5f)
+        wordmark = label("AIHERMES", Style.jost(this, 300), 22f, Style.IVORY, .5f)
         c.addView(wordmark, FrameLayout.LayoutParams(-1, -2))
         monsieur = label("MONSIEUR", Style.jost(this, 400), 10f, Style.ivory(.6f), .3f)
         c.addView(monsieur, FrameLayout.LayoutParams(-1, -2))
@@ -414,7 +414,13 @@ class MainActivity : ComponentActivity() {
  (function walk(r){ if(hit) return; r.querySelectorAll('*').forEach(function(e){ if(e.shadowRoot) walk(e.shadowRoot); });
    var tw=document.createTreeWalker(r,NodeFilter.SHOW_TEXT),n;
    while(!hit&&(n=tw.nextNode())){ var t=(n.textContent||'').trim(); if(/^-?\d+(\.\d+)?°\s*·/.test(t)&&t.length<60) hit=t; } })(document);
- return hit; }catch(e){ return ''; }})()"""
+ if(hit) return hit;
+ // 화면에 아직 안 그려졌으면: 대시보드와 같은 네이버 날씨 값으로 기온·상태만
+ var st=ha.hass.states['weather.naver_weather_jeceonsi_jangragdong_nalssi_jeceonsi_jangragdong'];
+ if(st&&st.attributes&&st.attributes.temperature!=null){
+   var c=ha.hass.formatEntityState?ha.hass.formatEntityState(st):st.state;
+   return Math.round(st.attributes.temperature)+'° · '+c; }
+ return ''; }catch(e){ return ''; }})()"""
         web.evaluateJavascript(js) { r ->
             val t = try { org.json.JSONArray("[" + (r ?: "\"\"") + "]").optString(0, "") } catch (e: Exception) { "" }
             if (t.isBlank() || t == "null") { weather.visibility = View.INVISIBLE; return@evaluateJavascript }
@@ -463,7 +469,8 @@ class MainActivity : ComponentActivity() {
                 else -> -1
             }
             v.translationX = rel * w + dx
-            v.visibility = if (rel == 0 || (rel == 1 && dx < 0) || (rel == -1 && dx > 0)) View.VISIBLE else View.INVISIBLE
+            // HA 화면은 늘 그려 둠(화면 밖으로 밀어 둘 뿐) — 숨기면 웹뷰가 그리기를 멈춰 날씨 문장을 못 읽음
+            v.visibility = if (v !== cover || rel == 0 || (rel == 1 && dx < 0) || (rel == -1 && dx > 0)) View.VISIBLE else View.INVISIBLE
         }
         for (i in 0 until indicator.childCount) indicator.getChildAt(i).alpha = if (i == cur) 1f else .3f
         // 아래 리본 한 줄은 HA 화면에서만 (표지가 보이는 만큼 옅어짐)
