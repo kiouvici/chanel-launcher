@@ -290,7 +290,7 @@ class MainActivity : ComponentActivity() {
             override fun onPageFinished(view: WebView?, u: String?) {
                 if ((u ?: "").contains("/auth/")) {
                     // 방금 로그인했으면 다시 띄우지 않고 한 번 더 불러오기만 (토큰 반영 지연 대비)
-                    if (System.currentTimeMillis() - lastLogin < 15000) { view?.postDelayed({ view.loadUrl(if (isHome) HOME_URL else HOUSE_URL) }, 1500); return }
+                    if (System.currentTimeMillis() - lastLogin < 15000) { view?.let { v -> v.postDelayed({ v.loadUrl(if (isHome) HOME_URL else HOUSE_URL) }, 1500) }; return }
                     showLogin(); return
                 }
                 view?.evaluateJavascript(HIDE_HEADER_JS, null)
