@@ -913,6 +913,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         val foot = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         folio = label("31 · RUE CAMBON · 30 FOLDERS", Style.jost(this, 300), 9f, Style.ivory(.6f), .25f, Gravity.START or Gravity.CENTER_VERTICAL)
         folio.setOnClickListener { if (repo.unassigned().isNotEmpty()) showUnassigned() }
+        folio.maxLines = 1; folio.ellipsize = android.text.TextUtils.TruncateAt.END
         foot.addView(folio, LinearLayout.LayoutParams(0, -1, 1f))
         settingsBtn = label("SETTINGS", Style.jost(this, 300), 9f, Style.ivory(.6f), .25f, Gravity.END or Gravity.CENTER_VERTICAL)
         settingsBtn.contentDescription = "설정"

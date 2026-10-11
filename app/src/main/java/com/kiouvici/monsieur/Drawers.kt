@@ -68,7 +68,6 @@ internal fun MainActivity.themeBox() {
             // VOYAGE: 남색 니트 + 마리니에르 띠 + 직조 라벨
             box.background = jerseyDrawable(this, .4f)
             deco.addView(View(this).apply { background = stripesDrawable(this@themeBox) }, FrameLayout.LayoutParams(-1, L.z(12f)).apply { topMargin = L.y(40f) })
-            deco.addView(View(this).apply { background = stripesDrawable(this@themeBox) }, FrameLayout.LayoutParams(-1, L.z(12f), Gravity.BOTTOM).apply { bottomMargin = navBot + dp(4f) })
             top = L.y(60f); hdrH = L.y(96f) - top; side = L.x(22f)
             val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             r.addView(txt("LE VESTIAIRE", Style.jost(this, 400), 12f, V_IVORY, .4f).apply { maxLines = 1 }, LinearLayout.LayoutParams(0, -2, 1f))

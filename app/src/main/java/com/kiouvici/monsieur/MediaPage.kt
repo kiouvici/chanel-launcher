@@ -628,7 +628,8 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         }
         val prev = db(0, 60f, 18f); val pl = db(2, 84f, 22f); val next = db(3, 60f, 18f)
         L.add(tap(prev) { doPrev() }, 74f, 552f, 60f, 60f); L.add(tap(pl) { doPlay() }, 164f, 540f, 84f, 84f); L.add(tap(next) { doNext() }, 278f, 552f, 60f, 60f)
-        L.add(L.t("Volume", Fonts.serifI(context), 16f, Style.ink(.7f)), 36f, 628f)
+        val volWord = L.t("Volume", Fonts.serifI(context), 16f, Style.ink(.7f)).also { L.add(it, 36f, 628f) }
+        nowViews += volWord
         volRow(L, 36f, 626f, 340f, VolBar.RULER, Style.INK, Style.ink(.3f), Style.ink(.6f), 84f)
         (volLbl!!.layoutParams as LayoutParams).topMargin = L.y(652f)
         out = L.t("", Fonts.serif(context), 16f, Style.ink(.75f), 0f, Gravity.CENTER).also { L.addLR(tap(it) { doOutput() }, 36f, 36f, 670f, 40f) }
@@ -768,10 +769,10 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         q.addView(qb, LinearLayout.LayoutParams(-2, L.z(44f)).apply { topMargin = L.z(14f) })
         L.addLR(q, 28f, 28f, 720f); quietBox = q
         val e = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; elevation = L.zf(12f) }
-        e.addView(L.t("THE VOYAGE", Style.jost(context, 500), 11f, tint(.6f, V_INK), .45f, Gravity.CENTER))
-        e.addView(L.t("Bon voyage.", Fonts.serifI(context), 28f, V_INK, 0f, Gravity.CENTER), LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(10f) })
-        e.addView(L.t("음악을 틀면 이 포스터에 앨범이 놓입니다.", Style.kr(context, 300), 13f, tint(.75f, V_INK), 0f, Gravity.CENTER).also { emptyMsg = it; emptyMsgOk = "음악을 틀면 이 포스터에 앨범이 놓입니다." }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(8f) })
-        val eb = hRow(); emptyButtons(eb) { pad(L.t(it, Style.kr(context, 400), 12.5f, V_IVORY), 16f).apply { setBackgroundColor(V_INK) } }
+        e.addView(L.t("THE VOYAGE", Style.jost(context, 500), 11f, tint(.7f, V_IVORY), .45f, Gravity.CENTER))
+        e.addView(L.t("Bon voyage.", Fonts.serifI(context), 28f, V_IVORY, 0f, Gravity.CENTER), LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(10f) })
+        e.addView(L.t("음악을 틀면 이 포스터에 앨범이 놓입니다.", Style.kr(context, 300), 13f, tint(.8f, V_IVORY), 0f, Gravity.CENTER).also { emptyMsg = it; emptyMsgOk = "음악을 틀면 이 포스터에 앨범이 놓입니다." }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(8f) })
+        val eb = hRow(); emptyButtons(eb) { pad(L.t(it, Style.kr(context, 400), 12.5f, V_INK), 16f).apply { setBackgroundColor(V_IVORY) } }
         e.addView(eb, LinearLayout.LayoutParams(-2, L.z(44f)).apply { topMargin = L.z(18f) })
         L.addLR(e, 60f, 60f, 190f); emptyBox = e
     }
