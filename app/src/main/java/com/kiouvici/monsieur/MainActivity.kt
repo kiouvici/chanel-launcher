@@ -69,6 +69,20 @@ class MainActivity : ComponentActivity() {
  run(); setInterval(run,400);
 })();
 """
+        /** HA 로그인 화면에서 '로그인 유지'를 자동으로 켜 둠 → 한 번 로그인하면 계속 유지 */
+        const val KEEP_LOGIN_JS = """
+(function(){
+ function all(r,sel,out){out=out||[];if(!r)return out;r.querySelectorAll(sel).forEach(function(e){out.push(e)});
+  r.querySelectorAll('*').forEach(function(e){if(e.shadowRoot)all(e.shadowRoot,sel,out)});return out;}
+ var n=0,t=setInterval(function(){
+  if(++n>60){clearInterval(t);return;}
+  if(location.pathname.indexOf('/auth/')<0){clearInterval(t);return;}
+  all(document,'ha-checkbox,mwc-checkbox,input[type=checkbox]').forEach(function(c){
+   if(!c.checked&&!c.__mns){c.__mns=1;c.click();}
+  });
+ },500);
+})();
+"""
         val EASE = PathInterpolator(.32f, .72f, 0f, 1f)
     }
 
@@ -85,7 +99,11 @@ class MainActivity : ComponentActivity() {
     private lateinit var progress: View
     private lateinit var failBox: LinearLayout
     private lateinit var dim: View
-    private lateinit var tab: FrameLayout
+    private lateinit var band: FrameLayout
+    private lateinit var gridScroll: ScrollView
+    private var sbTop = 0           // 상태바 높이
+    private var navBot = 0          // 아래 시스템 제스처 영역 높이
+    private var loginLayer: FrameLayout? = null
     private lateinit var box: FrameLayout
     private lateinit var grid: GridLayout
     private lateinit var countText: TextView
@@ -111,20 +129,28 @@ class MainActivity : ComponentActivity() {
         reduceMotion = Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
         root = FrameLayout(this).apply { setBackgroundColor(Style.INK) }
         setContentView(root)
+        // 표지를 상태바 뒤까지 꽉 채우기 (샤넬팀): 화면 끝까지 그리고, 여백은 직접 계산
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Style.INK
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { _, ins ->
+            val sb = ins.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            val ime = ins.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime())
+            sbTop = sb.top; navBot = sb.bottom
+            loginLayer?.setPadding(0, sbTop, 0, maxOf(navBot, ime.bottom))
+            if (::box.isInitialized) box.setPadding(0, 0, 0, maxOf(navBot, ime.bottom))
+            root.post { applyInsets() }
+            ins
+        }
 
         buildPages()
         dim = View(this).apply { setBackgroundColor(Color.BLACK); alpha = 0f; visibility = View.GONE; setOnClickListener { closeAll() } }
         root.addView(dim, FrameLayout.LayoutParams(-1, -1))
-        buildTab()
+        buildBand()
         buildBox()
         buildCard()
 
-        root.post {
-            boxH = root.height - dp(24f)
-            (box.layoutParams as FrameLayout.LayoutParams).apply { height = boxH; topMargin = dp(24f) }
-            box.requestLayout()
-            setOpen(0f)
-        }
+        root.post { applyInsets(); setOpen(0f) }
 
         // 화면이 꺼지면 표지로 돌려 둠 → 켤 때 항상 표지부터. 날짜는 매 분 확인
         registerReceiver(sysRx, android.content.IntentFilter().apply {
@@ -177,6 +203,64 @@ class MainActivity : ComponentActivity() {
         if (!pageLoaded) web.reload()
     }
 
+    /** 상태바·제스처 영역에 맞춰 자리 잡기 */
+    private fun applyInsets() {
+        if (root.height == 0 || !::box.isInitialized || !::band.isInitialized) return
+        listOf(web, webHouse).forEach { w ->
+            (w.layoutParams as FrameLayout.LayoutParams).apply { topMargin = sbTop; bottomMargin = navBot + dp(24f) }
+            w.requestLayout()
+        }
+        (band.layoutParams as FrameLayout.LayoutParams).bottomMargin = navBot; band.requestLayout()
+        (indicator.layoutParams as FrameLayout.LayoutParams).bottomMargin = navBot + dp(8f); indicator.requestLayout()
+        val top = sbTop + dp(24f)
+        boxH = root.height - top
+        (box.layoutParams as FrameLayout.LayoutParams).apply { height = boxH; topMargin = top }
+        box.requestLayout()
+        layoutCover()
+        setOpen(openP)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        CookieManager.getInstance().flush()
+    }
+
+    // ───────── HA 로그인 (처음 한 번) ─────────
+    /** HA 화면이 로그인 페이지로 가면, 전체 화면 로그인 창을 띄움. 로그인 유지는 자동으로 켬 */
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun showLogin() {
+        if (loginLayer != null) return
+        val layer = FrameLayout(this).apply { setBackgroundColor(Style.INK); elevation = dpf(40f); isClickable = true }
+        val lw = WebView(this).apply {
+            setBackgroundColor(Style.INK)
+            settings.javaScriptEnabled = true; settings.domStorageEnabled = true; settings.databaseEnabled = true
+            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, u: String?) {
+                    val url = u ?: ""
+                    if (url.contains("/auth/")) view?.evaluateJavascript(KEEP_LOGIN_JS, null)
+                    else if (url.contains("/dashboard-chanel")) {
+                        // 로그인 끝 → 세 화면을 새로 불러오고 창을 닫음
+                        CookieManager.getInstance().flush()
+                        root.postDelayed({ hideLogin(); web.loadUrl(HOME_URL); webHouse.loadUrl(HOUSE_URL) }, 600)
+                    }
+                }
+            }
+            loadUrl(HOME_URL)
+        }
+        layer.addView(lw, FrameLayout.LayoutParams(-1, -1))
+        layer.setPadding(0, sbTop, 0, navBot)
+        root.addView(layer, FrameLayout.LayoutParams(-1, -1))
+        loginLayer = layer
+    }
+
+    private fun hideLogin() {
+        val l = loginLayer ?: return
+        root.removeView(l)
+        (l.getChildAt(0) as? WebView)?.destroy()
+        loginLayer = null
+    }
+
     // ───────── 세 화면: 표지 · HA 홈 · HA 집 (옆으로 밀어 돌아감) ─────────
     @SuppressLint("SetJavaScriptEnabled")
     private fun makeWeb(url: String, isHome: Boolean): WebView = WebView(this).apply {
@@ -193,6 +277,7 @@ class MainActivity : ComponentActivity() {
         }
         webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, u: String?) {
+                if ((u ?: "").contains("/auth/")) { showLogin(); return }
                 view?.evaluateJavascript(HIDE_HEADER_JS, null)
                 if (isHome) { pageLoaded = true; hideProgress() }
             }
@@ -208,8 +293,7 @@ class MainActivity : ComponentActivity() {
 
     private fun buildPages() {
         pager = Pager()
-        // 가안: 화면 맨 아래 검정 띠(80dp)는 리본과 페이지 선 자리 — HA 화면이 가려지지 않음
-        root.addView(pager, FrameLayout.LayoutParams(-1, -1).apply { bottomMargin = dp(80f) })
+        root.addView(pager, FrameLayout.LayoutParams(-1, -1))
         cover = buildCover()
         web = makeWeb(HOME_URL, true)
         webHouse = makeWeb(HOUSE_URL, false)
@@ -221,36 +305,35 @@ class MainActivity : ComponentActivity() {
             indicator.addView(View(this).apply { setBackgroundColor(Style.IVORY) },
                 LinearLayout.LayoutParams(dp(16f), dp(1f)).apply { if (i > 0) leftMargin = dp(8f) })
         }
-        root.addView(indicator, FrameLayout.LayoutParams(-2, dp(9f), Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM).apply {
-            bottomMargin = dp(66f)
-        })
+        root.addView(indicator, FrameLayout.LayoutParams(-2, dp(9f), Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM))
         root.post { layoutPages(0f) }
     }
 
-    /** 표지: 닫힌 상자 뚜껑 + CHANEL · MONSIEUR + 날짜 한 줄 (+ 뒤에서 HA를 준비할 때만 금선) */
+    /** 표지: 상태바 뒤까지 꽉 찬 상자 뚜껑 + CHANEL · MONSIEUR + 날짜 (+ 뒤에서 HA를 준비할 때만 금선) */
+    private lateinit var wordmark: TextView
+    private lateinit var monsieur: TextView
     private fun buildCover(): FrameLayout {
         val c = FrameLayout(this).apply { setBackgroundColor(Style.INK) }
-        val w = resources.displayMetrics.widthPixels
-        val lidH = (w * 1.5f).toInt()
-        val top = dp(64f)
         val lid = ImageView(this).apply {
             setImageBitmap(Style.img(this@MainActivity, "lid.webp")); scaleType = ImageView.ScaleType.CENTER_CROP
         }
-        c.addView(lid, FrameLayout.LayoutParams(-1, lidH).apply { topMargin = top })
-        c.addView(label("CHANEL", Style.jost(this, 300), 22f, Style.IVORY, .5f),
-            FrameLayout.LayoutParams(-1, -2).apply { topMargin = top + dp(150f) })
-        c.addView(label("MONSIEUR", Style.jost(this, 400), 10f, Style.ivory(.6f), .3f),
-            FrameLayout.LayoutParams(-1, -2).apply { topMargin = top + dp(190f) })
+        c.addView(lid, FrameLayout.LayoutParams(-1, -1))
+        // 상태바 아이콘이 보이도록 위쪽 그늘 (#0A0A0A 40% → 0%)
+        c.addView(View(this).apply {
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Style.ink(.4f), Style.ink(0f)))
+        }, FrameLayout.LayoutParams(-1, dp(72f)))
+        wordmark = label("CHANEL", Style.jost(this, 300), 22f, Style.IVORY, .5f)
+        c.addView(wordmark, FrameLayout.LayoutParams(-1, -2))
+        monsieur = label("MONSIEUR", Style.jost(this, 400), 10f, Style.ivory(.6f), .3f)
+        c.addView(monsieur, FrameLayout.LayoutParams(-1, -2))
         dateText = label("", Style.jost(this, 300), 11f, Style.ivory(.6f), .3f)
-        c.addView(dateText, FrameLayout.LayoutParams(-1, -2).apply { topMargin = top + lidH - dp(64f) })
+        c.addView(dateText, FrameLayout.LayoutParams(-1, -2))
         updateDate()
 
         progressTrack = FrameLayout(this).apply { setBackgroundColor(Style.gold(.2f)) }
         progress = View(this).apply { setBackgroundColor(Style.GOLD); pivotX = 0f; scaleX = 0f }
         progressTrack.addView(progress, FrameLayout.LayoutParams(-1, -1))
-        c.addView(progressTrack, FrameLayout.LayoutParams(-1, dp(1f)).apply {
-            topMargin = top + lidH + dp(24f); leftMargin = dp(16f); rightMargin = dp(16f)
-        })
+        c.addView(progressTrack, FrameLayout.LayoutParams(-1, dp(1f)).apply { leftMargin = dp(16f); rightMargin = dp(16f) })
 
         failBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; visibility = View.GONE }
         failBox.addView(label("MAISON · 연결되지 않음", Style.kr(this, 300), 12f, Style.ivory(.7f), .05f))
@@ -263,8 +346,26 @@ class MainActivity : ComponentActivity() {
             }
         }
         failBox.addView(retry, LinearLayout.LayoutParams(dp(180f), dp(44f)).apply { topMargin = dp(10f) })
-        c.addView(failBox, FrameLayout.LayoutParams(-1, -2).apply { topMargin = top + lidH + dp(12f) })
+        c.addView(failBox, FrameLayout.LayoutParams(-1, -2))
         return c
+    }
+
+    /** 화면 높이에 맞춰 글자 자리: 워드마크 28%, 날짜는 사진 속 리본(높이 61%) 위 24dp */
+    private fun layoutCover() {
+        val h = root.height.takeIf { it > 0 } ?: return
+        val ribbonTop = (h * .61f).toInt()
+        (wordmark.layoutParams as FrameLayout.LayoutParams).topMargin = (h * .28f).toInt()
+        wordmark.post {
+            (monsieur.layoutParams as FrameLayout.LayoutParams).topMargin = (h * .28f).toInt() + wordmark.height + dp(16f)
+            monsieur.requestLayout()
+            dateText.post {
+                (dateText.layoutParams as FrameLayout.LayoutParams).topMargin = ribbonTop - dp(24f) - dateText.height
+                dateText.requestLayout()
+            }
+        }
+        (progressTrack.layoutParams as FrameLayout.LayoutParams).topMargin = (h * .80f).toInt()
+        (failBox.layoutParams as FrameLayout.LayoutParams).topMargin = (h * .78f).toInt()
+        wordmark.requestLayout(); progressTrack.requestLayout(); failBox.requestLayout()
     }
 
     private fun updateDate() {
@@ -300,6 +401,13 @@ class MainActivity : ComponentActivity() {
             v.visibility = if (rel == 0 || (rel == 1 && dx < 0) || (rel == -1 && dx > 0)) View.VISIBLE else View.INVISIBLE
         }
         for (i in 0 until indicator.childCount) indicator.getChildAt(i).alpha = if (i == cur) 1f else .3f
+        // 아래 리본 한 줄은 HA 화면에서만 (표지가 보이는 만큼 옅어짐)
+        if (::band.isInitialized) {
+            val coverX = cover.translationX
+            val shown = if (cover.visibility == View.VISIBLE) (1f - kotlin.math.abs(coverX) / w).coerceIn(0f, 1f) else 0f
+            band.alpha = 1f - shown
+            band.visibility = if (band.alpha > .01f) View.VISIBLE else View.INVISIBLE
+        }
     }
 
     private var pageAnim: ValueAnimator? = null
@@ -326,6 +434,7 @@ class MainActivity : ComponentActivity() {
     /** 가로로 민 것만 가로채서 화면을 넘김 (세로 스크롤은 HA에 그대로) */
     private inner class Pager : FrameLayout(this@MainActivity) {
         private var x0 = 0f; private var y0 = 0f; private var dragging = false
+        private var vertical = false; private var p0 = 0f
         private val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
         private var vt: android.view.VelocityTracker? = null
         override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
@@ -344,17 +453,25 @@ class MainActivity : ComponentActivity() {
             vt?.addMovement(e)
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    x0 = e.x; y0 = e.y; dragging = false; pageAnim?.cancel()
+                    x0 = e.x; y0 = e.y; dragging = false; vertical = false; p0 = openP; pageAnim?.cancel()
                     vt?.recycle(); vt = android.view.VelocityTracker.obtain(); vt?.addMovement(e)
                     return true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val dx = e.x - x0
-                    if (!dragging && kotlin.math.abs(dx) > slop && kotlin.math.abs(dx) > kotlin.math.abs(e.y - y0)) dragging = true
+                    val dx = e.x - x0; val dy = e.y - y0
+                    // 표지에서는 위로 쓸어 올리면 어디서든 앱 상자가 열림
+                    if (!dragging && !vertical && cur == 0 && -dy > slop && kotlin.math.abs(dy) > kotlin.math.abs(dx)) vertical = true
+                    if (vertical) { setOpen((p0 + (-dy) / boxH.coerceAtLeast(1)).coerceIn(0f, 1f)); return true }
+                    if (!dragging && kotlin.math.abs(dx) > slop && kotlin.math.abs(dx) > kotlin.math.abs(dy)) dragging = true
                     if (dragging) layoutPages(dx)
                     return true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (vertical) {
+                        vertical = false
+                        vt?.computeCurrentVelocity(1000); val vy = vt?.yVelocity ?: 0f
+                        animateOpen(if (openP > .35f || vy < -dpf(1000f)) 1f else 0f); return true
+                    }
                     if (!dragging) { layoutPages(0f); return true }
                     val dx = e.x - x0
                     vt?.computeCurrentVelocity(1000); val v = vt?.xVelocity ?: 0f
@@ -375,21 +492,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ───────── 리본 손잡이 ─────────
+    // ───────── HA 화면 아래 리본 한 줄 (샤넬팀 b안) ─────────
     @SuppressLint("ClickableViewAccessibility")
-    private fun buildTab() {
-        tab = FrameLayout(this)
-        val rib = ImageView(this).apply {
-            setImageBitmap(Style.img(this@MainActivity, "loop.webp"))
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            elevation = dpf(4f)
-        }
-        tab.addView(rib, FrameLayout.LayoutParams(dp(26f), dp(58f), Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM))
-        tab.contentDescription = "앱 상자 열기"
-        root.addView(tab, FrameLayout.LayoutParams(dp(120f), dp(62f), Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM).apply {
-            bottomMargin = dp(4f)
-        })
-        tab.setOnTouchListener(DragOpen(fromOpen = false))
+    private fun buildBand() {
+        band = FrameLayout(this).apply { setBackgroundColor(Style.INK); contentDescription = "앱 상자 열기" }
+        band.addView(View(this).apply { setBackgroundColor(Style.ivory(.5f)) }, FrameLayout.LayoutParams(-1, dp(1.5f), Gravity.TOP))
+        root.addView(band, FrameLayout.LayoutParams(-1, dp(24f), Gravity.BOTTOM))
+        band.setOnTouchListener(DragOpen(fromOpen = false))
+        indicator.bringToFront()
     }
 
     /** 손가락을 1:1로 따라 상자를 여닫는 끌기 */
@@ -422,7 +532,6 @@ class MainActivity : ComponentActivity() {
         box.visibility = if (p > 0f) View.VISIBLE else View.INVISIBLE
         dim.visibility = if (p > 0f) View.VISIBLE else View.GONE
         dim.alpha = p * .4f
-        tab.alpha = if (p > .02f) 0f else 1f
         if (::indicator.isInitialized) indicator.alpha = 1f - (p * 3f).coerceAtMost(1f)
         if (p == 0f) hideKeyboard()
     }
@@ -432,7 +541,7 @@ class MainActivity : ComponentActivity() {
         anim?.cancel()
         if (reduceMotion) { setOpen(target); return }
         anim = ValueAnimator.ofFloat(openP, target).apply {
-            duration = 420; interpolator = EASE
+            duration = if (target == 0f) 360 else 420; interpolator = EASE
             addUpdateListener { setOpen(it.animatedValue as Float) }
             start()
         }
@@ -445,10 +554,46 @@ class MainActivity : ComponentActivity() {
         animateOpen(0f)
     }
 
+    /** 상자 안 어디서든 아래로 크게 끌면 닫힘 (목록이 맨 위일 때) — 30% 또는 빠른 튕김 */
+    private inner class BoxLayout : FrameLayout(this@MainActivity) {
+        private var y0 = 0f; private var x0 = 0f; private var drag = false
+        private val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+        private var vt: android.view.VelocityTracker? = null
+        override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { y0 = e.rawY; x0 = e.rawX; drag = false
+                    vt?.recycle(); vt = android.view.VelocityTracker.obtain(); vt?.addMovement(e) }
+                MotionEvent.ACTION_MOVE -> {
+                    vt?.addMovement(e)
+                    val dy = e.rawY - y0
+                    val atTop = !::gridScroll.isInitialized || gridScroll.scrollY == 0
+                    if (atTop && card.visibility != View.VISIBLE && dy > slop * 2 && dy > kotlin.math.abs(e.rawX - x0) * 1.2f) {
+                        drag = true; y0 = e.rawY - dy; hideKeyboard(); return true
+                    }
+                }
+            }
+            return false
+        }
+        @SuppressLint("ClickableViewAccessibility")
+        override fun onTouchEvent(e: MotionEvent): Boolean {
+            if (!drag) return super.onTouchEvent(e)
+            vt?.addMovement(e)
+            when (e.actionMasked) {
+                MotionEvent.ACTION_MOVE -> setOpen((1f - (e.rawY - y0) / boxH.coerceAtLeast(1)).coerceIn(0f, 1f))
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    drag = false
+                    vt?.computeCurrentVelocity(1000); val vy = vt?.yVelocity ?: 0f
+                    animateOpen(if (openP < .7f || vy > dpf(1000f)) 0f else 1f)
+                }
+            }
+            return true
+        }
+    }
+
     // ───────── ② 상자 안 (서랍) ─────────
     @SuppressLint("ClickableViewAccessibility")
     private fun buildBox() {
-        box = FrameLayout(this).apply {
+        box = BoxLayout().apply {
             val inner = Style.img(this@MainActivity, "inner.webp")
             val scaled = Bitmap.createScaledBitmap(inner, dp(256f), dp(256f), true)
             background = BitmapDrawable(resources, scaled).apply { setTileModeXY(Shader.TileMode.REPEAT, Shader.TileMode.REPEAT) }
@@ -484,7 +629,8 @@ class MainActivity : ComponentActivity() {
         col.addView(hd, LinearLayout.LayoutParams(-1, dp(30f)))
 
         grid = GridLayout(this).apply { columnCount = 5; useDefaultMargins = false }
-        val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; addView(grid) }
+        gridScroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; addView(grid) }
+        val sv = gridScroll
         col.addView(sv, LinearLayout.LayoutParams(-1, 0, 1f))
 
         search = EditText(this).apply {
@@ -745,7 +891,7 @@ class MainActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
             background = BitmapDrawable(resources, Style.img(this@MainActivity, "card.webp"))
             elevation = dpf(32f); isClickable = true
-            setPadding(dp(24f), dp(24f), dp(24f), dp(24f))
+            setPadding(dp(24f), dp(24f), dp(24f), dp(24f) + navBot)
         }
         fun row(text: String, last: Boolean, go: () -> Unit) {
             val t = label(text, Style.kr(this, 300), 14f, Style.INK, 0f, Gravity.START or Gravity.CENTER_VERTICAL)
