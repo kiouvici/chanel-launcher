@@ -37,6 +37,7 @@ class AppRepo(private val ctx: Context) {
 
     /** 원UI 홈 폴더 캡처에서 옮긴 초기 배정(assets/folders.json).
      *  아직 폴더가 없는 앱만 이름으로 찾아 넣음 — 직접 옮긴 앱은 건드리지 않음 */
+    private val prefixes = HashMap<String, String>()
     private val preset: Map<String, String> by lazy {
         val m = HashMap<String, String>()
         try {
@@ -44,7 +45,11 @@ class AppRepo(private val ctx: Context) {
             o.keys().forEach { f ->
                 if (f in FOLDERS) {
                     val arr = o.getJSONArray(f)
-                    for (i in 0 until arr.length()) m[norm(arr.getString(i))] = f
+                    for (i in 0 until arr.length()) {
+                        val name = arr.getString(i)
+                        // 캡처에서 이름이 잘린 앱('…'로 끝남)은 앞부분으로 찾음
+                        if (name.endsWith("…")) prefixes[norm(name.dropLast(1))] = f else m[norm(name)] = f
+                    }
                 }
             }
         } catch (e: Exception) { }
@@ -98,7 +103,9 @@ class AppRepo(private val ctx: Context) {
         var changed = false
         apps.forEach { a ->
             if (folderOf[a.pkg] !in FOLDERS) {
-                preset[norm(a.label)]?.let { folderOf[a.pkg] = it; changed = true }
+                val key = norm(a.label)
+                val f = preset[key] ?: prefixes.entries.firstOrNull { key.startsWith(it.key) }?.value
+                f?.let { folderOf[a.pkg] = it; changed = true }
             }
         }
         if (changed) saveMaps()
