@@ -112,8 +112,8 @@ class ThemeCover(ctx: Context, private val look: Look) : FrameLayout(ctx) {
         }
         row(178f, "FROM", "31 RUE CAMBON"); row(214f, "TO", "MONSIEUR"); tWx = row(250f, "WEATHER EN ROUTE", "")
         tk.addView(View(context).apply { background = Perf(NAVY, T.zf(3f), T.zf(14f)) }, LayoutParams(-1, T.z(10f)).apply { topMargin = T.y(430f) })
-        tStub = T.t("", mono, 10f, Style.ink(.7f), .18f).also { T.add(it, 24f, 488f) }
-        T.addLR(T.t("1RE CLASSE · VOITURE 31", mono, 10f, Style.ink(.7f), .18f, Gravity.END), 24f, 24f, 488f)
+        tStub = T.t("", mono, 9.5f, Style.ink(.7f), .12f).also { T.add(it, 24f, 488f) }
+        T.addLR(T.t("1RE CLASSE · VOITURE 31", mono, 9.5f, Style.ink(.7f), .12f, Gravity.END), 24f, 24f, 506f)
         L.addLR(L.t("위로 쓸면 출발 안내판", mono, 10f, Style.ivory(.45f), .15f, Gravity.CENTER), 0f, 0f, 826f)
     }
 

@@ -275,6 +275,11 @@ class MainActivity : ComponentActivity(), MediaHost {
         if (t in 0..4 && t != look.theme) applyTheme(t)
         val pg = i.getIntExtra("page", -1)
         if (pg in 0..3) { closeAllNow(); goPage(pg, false) }
+        when (i.getStringExtra("sheet")) {
+            "settings" -> root.postDelayed({ setOpen(1f); showSettingsSheet() }, 400)
+            "display" -> root.postDelayed({ setOpen(1f); displaySheet() }, 400)
+            "collection" -> root.postDelayed({ showCollection() }, 400)
+        }
         if (i.getBooleanExtra("drawer", false)) root.postDelayed({
             setOpen(1f)
             val f = i.getIntExtra("folder", -1)
@@ -284,7 +289,7 @@ class MainActivity : ComponentActivity(), MediaHost {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.hasExtra("theme") || intent.hasExtra("page") || intent.hasExtra("drawer")) { root.postDelayed({ shotIntent(intent) }, 300); return }
+        if (intent.hasExtra("theme") || intent.hasExtra("page") || intent.hasExtra("drawer") || intent.hasExtra("sheet")) { root.postDelayed({ shotIntent(intent) }, 300); return }
         // 홈 버튼: 열린 것만 닫는다 (서랍은 끌어올리기로만 연다 — 성훈님 결정)
         if (Intent.ACTION_MAIN == intent.action) {
             val wasClosed = openP == 0f && card.visibility != View.VISIBLE
@@ -528,7 +533,8 @@ class MainActivity : ComponentActivity(), MediaHost {
         // HA 준비 금선·다시 연결은 테두리 안쪽 맨 아래
         val inBottom = h - navBot - dp(28f)
         (progressTrack.layoutParams as FrameLayout.LayoutParams).apply { topMargin = inBottom - dp(16f); leftMargin = dp(32f); rightMargin = dp(32f) }
-        (failBox.layoutParams as FrameLayout.LayoutParams).topMargin = inBottom - dp(96f)
+        // CAPTION은 아래에 사진 설명이 있어 '다시 연결'을 위로
+        (failBox.layoutParams as FrameLayout.LayoutParams).topMargin = if (look.theme == Look.CAPTION) sbTop + dp(64f) else inBottom - dp(96f)
         listOf(frame, wordmark, clock, progressTrack, failBox).forEach { it.requestLayout() }
     }
 
@@ -630,7 +636,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         val light = openP == 0f && themeOpen == null && ((cur == 0 && themeCover.isLight) || (cur == 1 && media.isLight))
         if (light == barsLight) return
         barsLight = light
-        androidx.core.view.WindowCompat.getInsetsController(window, root).isAppearanceLightStatusBars = light
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = light
     }
 
     private var pageAnim: ValueAnimator? = null
@@ -1637,6 +1643,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         look.theme = t
         hideCard()
         themeCover.rebuild(true)
+        layoutCover()
         media.rebuild(true)
         themeBox()
         refreshGrid()
@@ -1663,6 +1670,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         }
     }
     override fun askToken() = tokenSheet()
+    override fun photo() = themeCover.photoDrawable()
     override fun hasApp(pkg: String) = packageManager.getLaunchIntentForPackage(pkg) != null
     override fun openApp(pkg: String): Boolean {
         val i = packageManager.getLaunchIntentForPackage(pkg) ?: return false

@@ -32,6 +32,7 @@ interface MediaHost {
     val look: Look
     fun sendSheet(sources: List<String>, current: String, onPick: (String) -> Unit)
     fun askToken()
+    fun photo(): android.graphics.drawable.Drawable
     fun openApp(pkg: String): Boolean
     fun hasApp(pkg: String): Boolean
 }
@@ -87,6 +88,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     private var flowAnim: ObjectAnimator? = null
     private val nowViews = ArrayList<View>()      // 재생 없음이면 숨길 것
     private val houseViews = ArrayList<View>()    // 집 모두 꺼짐이면 숨길 것
+    private val emptyViews = ArrayList<View>()    // 재생 없음일 때만 보일 것
     private var emptyBox: View? = null
     private var quietBox: View? = null
     private var quietTitle: TextView? = null
@@ -114,7 +116,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         if (!force && theme == look.theme && builtW == width && builtH == height) return
         theme = look.theme; builtW = width; builtH = height
         stopAnims()
-        removeAllViews(); nowViews.clear(); houseViews.clear()
+        removeAllViews(); nowViews.clear(); houseViews.clear(); emptyViews.clear()
         art = null; title = null; sub = null; src = null; t0 = null; t1 = null; prog = null; play = null; playText = null
         out = null; sentence = null; whenLine = null; flaps = emptyList(); flapNote = null; spin = null; flowArt = null
         atvName = null; atvSub = null; atvBtn = null; atvArt = null; mzState = null; mzBtn = null
@@ -204,6 +206,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         if (theme < 0) return
         val now = hasNow
         nowViews.forEach { it.visibility = if (now) View.VISIBLE else View.INVISIBLE }
+        emptyViews.forEach { it.visibility = if (now) View.GONE else View.VISIBLE }
         emptyBox?.visibility = if (now) View.GONE else View.VISIBLE
         if (!now) { stopAnims(); return }
         val t = meta(MediaMetadata.METADATA_KEY_TITLE)
@@ -319,10 +322,17 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         val quiet = noToken || !haOk || (!Ha.on(atv) && !Ha.on(mz))
         houseViews.forEach { it.visibility = if (quiet) View.INVISIBLE else View.VISIBLE }
         quietBox?.visibility = if (quiet) View.VISIBLE else View.GONE
-        quietTitle?.text = when {
+        val qt = when {
             noToken -> "HA에 연결하면 집 기기가 여기 놓입니다"
             !haOk -> "HA에 연결되지 않았습니다"
-            else -> when (theme) { Look.LIBRARY -> "The house is quiet."; Look.TRAIN -> "PAS DE CORRESPONDANCE · 집은 조용합니다"; else -> "집은 조용합니다" }
+            else -> when (theme) { Look.LIBRARY -> "The house is quiet."; Look.TRAIN -> "PAS DE CORRESPONDANCE"; else -> "집은 조용합니다" }
+        }
+        quietTitle?.let { q ->
+            q.text = qt
+            // 한글 문장은 한글 글꼴로 (영문 세리프·고정폭에 한글이 섞이면 어색함)
+            if (qt.any { it.code > 0x3000 }) { q.typeface = Style.kr(context, 400); q.letterSpacing = 0f; q.textSize = 14f }
+            else if (theme == Look.LIBRARY) { q.typeface = Fonts.serif(context); q.textSize = 22f }
+            else if (theme == Look.TRAIN) { q.typeface = Fonts.mono(context); q.letterSpacing = .1f; q.textSize = 12f }
         }
         quietBtns?.let { b ->
             (b.getChildAt(0) as? TextView)?.text = if (noToken || !haOk) "HA 연결" else "거실에서 듣기"
@@ -444,6 +454,11 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         val sleeve = FrameLayout(context).apply { setBackgroundColor(0xFF0D0D0D.toInt()); elevation = L.zf(13f) }
         L.add(sleeve, 44f, 96f, 252f, 252f)
         art = ArtView(context).also { sleeve.addView(it, LayoutParams(-1, -1).apply { val m = L.z(14f); setMargins(m, m, m, m) }) }
+        // 재생 없음: 빈 종이 슬리브에 N°31 눌러 찍기
+        val es = FrameLayout(context).apply { background = Style.tile(context, Style.PAPER, 256f) }
+        es.addView(L.t("N°31", Style.jost(context, 300), 28f, 0xFFE3DCCF.toInt(), .2f, Gravity.CENTER).apply {
+            setShadowLayer(L.zf(1f), 0f, L.zf(1f), Color.argb(150, 255, 255, 255)) }, LayoutParams(-1, -1))
+        sleeve.addView(es, LayoutParams(-1, -1)); emptyViews += es
         val ink = Style.INK
         title = L.t("", Style.jost(context, 400), 24f, ink, .02f, Gravity.CENTER).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; elevation = L.zf(12f) }
         L.addLR(title!!, 36f, 36f, 372f)
@@ -611,7 +626,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         L.add(tap(out!!) { doOutput() }, 74f, 626f, 150f, 44f)
         val send = L.t("보내기 ›", Style.kr(context, 400), 11f, Style.ivory(.8f), .1f, Gravity.CENTER).apply { background = shape(stroke = tint(.5f, GOLD_LT), strokePx = L.z(1f)) }
         L.add(tap(send) { doSend() }, 236f, 626f, 100f, 44f)
-        nowViews += listOf(art!!, arc, title!!, sub!!, src!!, prev, crown, next, out!!)
+        nowViews += listOf(send, art!!, arc, title!!, sub!!, src!!, prev, crown, next, out!!)
         // 집: 보조 다이얼 두 개
         val sub1 = FrameLayout(context).apply { background = Pic(Style.img(context, "th/subdial.webp"), Pic.CONTAIN) }
         L.add(tap(sub1) { doAtv() }, 58f, 690f, 120f, 120f)
@@ -683,7 +698,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         out = L.t("", Fonts.mono(context), 11f, Style.ivory(.75f), .12f, Gravity.CENTER).also { L.add(tap(it) { doOutput() }, 40f, 624f, 220f, 40f) }
         val send = L.t("보내기 ›", Style.kr(context, 400), 11f, GOLD_LT, .1f, Gravity.CENTER).apply { background = shape(stroke = tint(.6f, GOLD_LT), strokePx = L.z(1f)) }
         L.add(tap(send) { doSend() }, 270f, 624f, 100f, 40f)
-        nowViews += listOf(win, row, flapNote!!, sub!!, t0!!, t1!!, rp, prev, pl, next, out!!)
+        nowViews += listOf(send, win, row, flapNote!!, sub!!, t0!!, t1!!, rp, prev, pl, next, out!!)
         // 연결편 (CORRESPONDANCES)
         val cs = FrameLayout(context); L.addLR(cs, 32f, 32f, 676f, 170f)
         val C = Lay(context, cs, L.w - L.x(64f), L.z(170f), 348f, 170f)
@@ -723,6 +738,12 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     private fun buildCaption(L: Lay) {
         lightBg = false
         setBackgroundColor(Style.INK)
+        // 재생 없음: 표지 사진을 흑백으로 어둡게
+        val ep = View(context).apply {
+            background = host.photo(); alpha = .55f
+            setLayerType(View.LAYER_TYPE_HARDWARE, Paint().apply { colorFilter = android.graphics.ColorMatrixColorFilter(android.graphics.ColorMatrix().apply { setSaturation(0f) }) })
+        }
+        addView(ep, LayoutParams(-1, L.w)); emptyViews += ep
         art = ArtView(context).also { addView(it, LayoutParams(-1, L.w)) }
         addView(View(context).apply { background = InsetBox(Style.ivory(.3f), L.zf(1f), 0f) }, LayoutParams(-1, L.w))
         addView(View(context).apply { background = vgrad(Color.TRANSPARENT, Style.INK) }, LayoutParams(-1, L.y(120f)).apply { topMargin = L.w - L.y(112f) })
@@ -741,7 +762,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         out = L.t("", Style.kr(context, 300), 12.5f, Style.ivory(.75f)).also { L.add(tap(it) { doOutput() }, 32f, 622f, WRAP, 40f); it.gravity = Gravity.CENTER_VERTICAL }
         val send = L.t("보내기 →", Style.kr(context, 400), 12.5f, Style.IVORY, 0f, Gravity.CENTER).apply { background = UnderLine(Style.ivory(.6f), L.zf(1f), 0f) }
         L.add(tap(send) { doSend() }, 300f, 622f, 80f, 40f)
-        nowViews += listOf(art!!, credit, l1, title!!, sub!!, pv, row, out!!)
+        nowViews += listOf(send, art!!, credit, l1, title!!, sub!!, pv, row, out!!)
         val hs = FrameLayout(context); L.addLR(hs, 32f, 32f, 686f, 180f)
         val H = Lay(context, hs, L.w - L.x(64f), L.z(180f), 348f, 180f)
         H.add(H.t("ELSEWHERE IN THE HOUSE —", Style.jost(context, 400), 10f, Style.ivory(.85f), .3f), 0f, 0f)

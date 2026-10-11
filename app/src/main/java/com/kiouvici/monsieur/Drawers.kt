@@ -70,10 +70,10 @@ internal fun MainActivity.themeBox() {
                 FrameLayout.LayoutParams(-1, -1).apply { topMargin = L.y(36f); leftMargin = L.x(4f); rightMargin = L.x(4f); bottomMargin = L.y(4f) })
             top = L.y(62f); hdrH = L.y(104f) - top; side = L.x(30f)
             val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            r.addView(txt("DEPARTURES", Fonts.mono(this), 12f, GOLD_LT, .3f), LinearLayout.LayoutParams(0, -2, 1f))
-            r.addView(txt("LE TRAIN BLEU · 1924", Fonts.serif(this), 13f, tint(.85f, GOLD_LT), .12f), LinearLayout.LayoutParams(-2, -2))
-            val tc = txt("", Fonts.mono(this), 12f, GOLD_LT, .3f, Gravity.END); trainClock = tc
-            r.addView(tc, LinearLayout.LayoutParams(0, -2, 1f))
+            r.addView(txt("DEPARTURES", Fonts.mono(this), 11f, GOLD_LT, .22f).apply { maxLines = 1 }, LinearLayout.LayoutParams(-2, -2))
+            r.addView(txt("LE TRAIN BLEU · 1924", Fonts.serif(this), 13f, tint(.85f, GOLD_LT), .1f, Gravity.CENTER).apply { maxLines = 1 }, LinearLayout.LayoutParams(0, -2, 1f))
+            val tc = txt("", Fonts.mono(this), 11f, GOLD_LT, .22f, Gravity.END).apply { maxLines = 1 }; trainClock = tc
+            r.addView(tc, LinearLayout.LayoutParams(-2, -2))
             hdr.addView(r, FrameLayout.LayoutParams(-1, -2))
         }
         Look.CAPTION -> {
