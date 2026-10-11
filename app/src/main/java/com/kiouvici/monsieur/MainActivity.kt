@@ -178,8 +178,8 @@ class MainActivity : ComponentActivity() {
                     pickFolder != null -> { pickFolder = null; cardFolder?.let { showFolder(it) } }
                     card.visibility == View.VISIBLE -> hideCard()
                     openP > 0f -> animateOpen(0f)
-                    cur == 1 && web.canGoBack() -> web.goBack()
-                    cur == 2 && webHouse.canGoBack() -> webHouse.goBack()
+                    cur == 1 && haBack(web, HOME_URL) -> {}
+                    cur == 2 && haBack(webHouse, HOUSE_URL) -> {}
                     cur != 0 -> goPage(0)
                 }
             }
@@ -193,6 +193,20 @@ class MainActivity : ComponentActivity() {
                 else -> { updateDate(); refreshWeather() }
             }
         }
+    }
+
+    /** HA 화면 뒤로 가기: 하위 화면이면 한 단계 뒤로, 홈·집 맨 위면 표지로.
+     *  뒤 기록이 로그인 화면이면 그리로 가지 않고 그 화면의 맨 위로 (뒤로 가기 → 로그인 화면이 뜨던 문제) */
+    private fun haBack(w: WebView, topUrl: String): Boolean {
+        val path = android.net.Uri.parse(w.url ?: "").path ?: ""
+        if (Regex("/dashboard-chanel/(home|house|0|1)/?$").containsMatchIn(path)) return false
+        val h = w.copyBackForwardList()
+        val prev = if (h.currentIndex > 0) h.getItemAtIndex(h.currentIndex - 1)?.url ?: "" else ""
+        when {
+            prev.isEmpty() || prev.contains("/auth/") -> w.loadUrl(topUrl)
+            else -> w.goBack()
+        }
+        return true
     }
 
     private fun closeAllNow() { hideMenu(); hideSettingsSheet(); hideCard(); if (::search.isInitialized) search.setText(""); anim?.cancel(); setOpen(0f) }
@@ -321,6 +335,11 @@ class MainActivity : ComponentActivity() {
                     showLogin(); return
                 }
                 view?.evaluateJavascript(HIDE_HEADER_JS, null)
+                // 로그인 전 거쳐 간 로그인 화면을 기록에서 지움 → 뒤로 가기로 로그인 화면이 다시 뜨지 않게
+                view?.let { v ->
+                    val h = v.copyBackForwardList()
+                    if ((0 until h.size).any { (h.getItemAtIndex(it)?.url ?: "").contains("/auth/") }) v.clearHistory()
+                }
                 if (isHome) { pageLoaded = true; hideProgress(); root.postDelayed({ refreshWeather() }, 4000) }
             }
             override fun onReceivedError(view: WebView?, req: WebResourceRequest?, err: WebResourceError?) {
@@ -833,7 +852,7 @@ class MainActivity : ComponentActivity() {
         val ic = (size * 24 / 68f).toInt().coerceAtLeast(dp(20f)); val g = dp(6f) * size / dp(68f)
         val pad = (size - ic * 2 - g) / 2
         repo.coverApps(id).forEachIndexed { k, a ->
-            val iv = ImageView(this).apply { setImageDrawable(a.icon); styleIcon(this) }
+            val iv = ImageView(this).apply { setImageDrawable(iconOf(a)); styleIcon(this) }
             cv.addView(iv, FrameLayout.LayoutParams(ic, ic).apply {
                 leftMargin = pad + (k % 2) * (ic + g); topMargin = pad + (k / 2) * (ic + g)
             })
@@ -890,6 +909,11 @@ class MainActivity : ComponentActivity() {
         val r = row(0x4A, 0xE2); val g = row(0x38, 0xC7); val b = row(0x18, 0x8E)
         android.graphics.ColorMatrixColorFilter(floatArrayOf(*r, *g, *b, 0f, 0f, 0f, 1f, 0f))
     }
+    /** 앱마다 아이콘을 따로 복사해 씀 — 같은 아이콘을 여러 칸이 나눠 쓰면 한 칸에 입힌 MONO·GILT 색이
+     *  다른 칸에도 남아, COLOR로 돌아와도 폴더 표지 색이 안 바뀌던 문제 */
+    private fun iconOf(a: AppEntry): android.graphics.drawable.Drawable =
+        a.icon.constantState?.newDrawable(resources)?.mutate() ?: a.icon
+
     private fun styleIcon(iv: ImageView) {
         when (repo.iconMode) {
             AppRepo.ICON_MONO -> { iv.colorFilter = monoFilter; iv.imageAlpha = 217 }
@@ -1054,7 +1078,7 @@ class MainActivity : ComponentActivity() {
     private fun appCell(a: AppEntry, badge: Boolean, src: String?): View {
         val cell = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; setPadding(0, dp(4f), 0, dp(12f)) }
         val fr = FrameLayout(this)
-        val iv = ImageView(this).apply { setImageDrawable(a.icon); styleIcon(this) }
+        val iv = ImageView(this).apply { setImageDrawable(iconOf(a)); styleIcon(this) }
         fr.addView(iv, FrameLayout.LayoutParams(dp(52f), dp(52f)))
         if (badge) fr.addView(dot(), FrameLayout.LayoutParams(dp(6f), dp(6f), Gravity.END or Gravity.TOP))
         // 표지 앱 고르기: 오른쪽 위 18dp 칸 (고른 앱은 금 바탕에 순서 숫자)
@@ -1407,7 +1431,7 @@ class MainActivity : ComponentActivity() {
                 repo.hiddenApps().forEachIndexed { i, a ->
                     if (i > 0) list.addView(View(this).apply { setBackgroundColor(Style.ink(.1f)) }, LinearLayout.LayoutParams(-1, dp(1f)))
                     val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-                    r.addView(ImageView(this).apply { setImageDrawable(a.icon); styleIcon(this) }, LinearLayout.LayoutParams(dp(32f), dp(32f)))
+                    r.addView(ImageView(this).apply { setImageDrawable(iconOf(a)); styleIcon(this) }, LinearLayout.LayoutParams(dp(32f), dp(32f)))
                     r.addView(label(a.label, Style.kr(this, 300), 14f, Style.INK, 0f, Gravity.START).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END },
                         LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(14f) })
                     r.addView(label("다시 보이기", Style.kr(this, 400), 12f, Style.INK, .04f).apply {
