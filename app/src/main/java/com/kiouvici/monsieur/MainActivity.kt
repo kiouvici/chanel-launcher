@@ -598,9 +598,10 @@ class MainActivity : ComponentActivity(), MediaHost {
         val days = arrayOf("SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY")
         clock.text = "%02d:%02d".format(cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
         // 월 · 일 · 요일 (영어 전환 — 샤넬팀 6:1)
-        dateText.text = "%d · %d · %s".format(
-            cal.get(java.util.Calendar.MONTH) + 1, cal.get(java.util.Calendar.DAY_OF_MONTH),
-            days[cal.get(java.util.Calendar.DAY_OF_WEEK) - 1])
+        // '요일 · 일 월' — '10 · 11'이 날짜인지 시각인지 헷갈리던 것 (샤넬팀 build-29 검수)
+        val months = arrayOf("JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER")
+        dateText.text = "%s · %d %s".format(days[cal.get(java.util.Calendar.DAY_OF_WEEK) - 1],
+            cal.get(java.util.Calendar.DAY_OF_MONTH), months[cal.get(java.util.Calendar.MONTH)])
     }
 
     private fun setProgress(p: Float) { if (::progress.isInitialized) progress.scaleX = p.coerceIn(0f, 1f) }
@@ -630,7 +631,13 @@ class MainActivity : ComponentActivity(), MediaHost {
             val near = rel == 0 || (rel == 1 && dx < 0) || (rel == -1 && dx > 0)
             v.visibility = if (v is WebView || near) View.VISIBLE else View.INVISIBLE
         }
-        for (i in 0 until indicator.childCount) indicator.getChildAt(i).alpha = if (i == cur) 1f else .3f
+        // 페이지 점: LIBRARY 종이 위(표지·미디어)에서는 먹색 — 아이보리 점이 종이에 묻히던 것
+        val inkDots = look.theme == Look.LIBRARY && cur <= 1
+        for (i in 0 until indicator.childCount) indicator.getChildAt(i).apply {
+            setBackgroundColor(if (inkDots) (if (i == cur) 0xFF2B2520.toInt() else 0xFF8A7E6E.toInt()) else Style.IVORY)
+            alpha = if (inkDots || i == cur) 1f else .3f
+            (layoutParams as LinearLayout.LayoutParams).let { lp -> val h = if (inkDots) dp(1.5f) else dp(1f); if (lp.height != h) { lp.height = h; layoutParams = lp } }
+        }
         // 아래 리본 한 줄은 HA 화면에서만 (HA 화면이 보이는 만큼)
         if (::band.isInitialized) {
             fun shown(v: View) = if (v.visibility == View.VISIBLE) (1f - kotlin.math.abs(v.translationX) / w).coerceIn(0f, 1f) else 0f

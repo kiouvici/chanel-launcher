@@ -286,7 +286,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
             else -> {
                 title?.text = t
                 sub?.text = listOf(ar, al).filter { it.isNotEmpty() }.joinToString(" · ")
-                src?.text = "${app.uppercase()} · " + if (volTarget == 1) "MARANTZ" else "이 폰"
+                src?.text = "${app.uppercase()} · " + if (volTarget == 1) "MARANTZ" else "PHONE"
                 out?.text = outLabel(outN, "›")
             }
         }
@@ -663,24 +663,24 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         val card = FrameLayout(context).apply {
             background = Style.tile(context, Style.PAPER, 256f); foreground = InsetBox(Style.ink(.45f), L.zf(.75f), L.zf(4f)); elevation = L.zf(8f)
         }
-        L.addLR(card, 16f, 16f, 708f, 148f)
-        val CL = Lay(context, card, L.w - L.x(32f), L.z(148f), 380f, 148f)
+        L.addLR(card, 16f, 16f, 700f, 136f)
+        val CL = Lay(context, card, L.w - L.x(32f), L.z(136f), 380f, 136f)
         CL.add(CL.t("À LA MAISON", Style.jost(context, 400), 10f, Style.GILT, .3f), 16f, 14f)
         mzHead = CL.t("", Style.jost(context, 400), 10f, Style.ink(.7f), .1f, Gravity.END).also { CL.add(it, 180f, 13f, 184f); houseViews += it }
         fun mrow(top: Float, isAtv: Boolean) {
-            val r = FrameLayout(context); CL.addLR(r, 16f, 16f, top, 52f)
-            val R1 = Lay(context, r, CL.w - CL.x(32f), CL.z(52f), 348f, 52f)
+            val r = FrameLayout(context); CL.addLR(r, 16f, 16f, top, 48f)
+            val R1 = Lay(context, r, CL.w - CL.x(32f), CL.z(48f), 348f, 48f)
             r.addView(View(context).apply { setBackgroundColor(Style.ink(.12f)) }, LayoutParams(-1, 1))
-            if (isAtv) atvArt = ArtView(context).also { R1.add(it, 0f, 5f, 42f, 42f) }
-            else R1.add(View(context).apply { setBackgroundColor(Style.INK) }, 0f, 5f, 42f, 42f)
-            val nm = R1.t(if (isAtv) "Apple TV" else "Marantz", Style.jost(context, 400), 13.5f, Style.INK).also { R1.add(it, 54f, 8f) }
-            val st = R1.t("", Style.kr(context, 300), 11.5f, Style.ink(.65f)).also { R1.add(it, 54f, 28f) }
+            if (isAtv) atvArt = ArtView(context).also { R1.add(it, 0f, 5f, 38f, 38f) }
+            else R1.add(View(context).apply { setBackgroundColor(Style.INK) }, 0f, 5f, 38f, 38f)
+            val nm = R1.t(if (isAtv) "Apple TV" else "Marantz", Style.jost(context, 400), 13.5f, Style.INK).also { R1.add(it, 50f, 6f) }
+            val st = R1.t("", Style.kr(context, 300), 11.5f, Style.ink(.65f)).also { R1.add(it, 50f, 26f) }
             val b = pad(R1.t(if (isAtv) "켜기" else "켜기", Style.kr(context, 400), 12f, Style.IVORY), 0f).apply { setBackgroundColor(Style.INK) }
-            R1.add(tap(b) { if (isAtv) doAtv() else doMz() }, 276f, 4f, 72f, 44f)
+            R1.add(tap(b) { if (isAtv) doAtv() else doMz() }, 276f, 2f, 72f, 44f)
             if (isAtv) { atvName = nm; atvSub = st; atvBtn = b } else { mzName = nm; mzState = st; mzBtn = b }
             houseViews += r
         }
-        mrow(36f, true); mrow(88f, false)
+        mrow(36f, true); mrow(84f, false)
         // 비었을 때 · 조용할 때
         val q = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         val qt = CL.t("집은 조용합니다", Style.kr(context, 400), 15f, Style.INK, 0f, Gravity.CENTER); quietTitle = qt
@@ -792,17 +792,17 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         nowViews += listOf(aw, tw, sub!!, pv, t0!!, t1!!, prev, pl, next, out!!)
         // 집: Apple TV · Marantz
         fun hrow(top: Float, isAtv: Boolean) {
-            val r = FrameLayout(context); L.addLR(r, 24f, 24f, top, 52f)
-            val R1 = Lay(context, r, L.w - L.x(48f), L.z(52f), 364f, 52f)
+            val r = FrameLayout(context); L.addLR(r, 24f, 24f, top, 48f)
+            val R1 = Lay(context, r, L.w - L.x(48f), L.z(48f), 364f, 48f)
             r.addView(View(context).apply { setBackgroundColor(tint(.2f, H_GOLD)) }, LayoutParams(-1, 1))
-            val nm = R1.t(if (isAtv) "Apple TV" else "Marantz", Style.jost(context, 400), 15f, H_IVORY, .02f).also { R1.add(it, 0f, 15f) }
-            val st = R1.t("", Style.kr(context, 300), 12.5f, tint(.6f, H_IVORY)).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { R1.add(it, 116f, 17f, 170f) }
+            val nm = R1.t(if (isAtv) "Apple TV" else "Marantz", Style.jost(context, 400), 15f, H_IVORY, .02f).also { R1.add(it, 0f, 13f) }
+            val st = R1.t("", Style.kr(context, 300), 12.5f, tint(.6f, H_IVORY)).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { R1.add(it, 116f, 15f, 170f) }
             val b = R1.t("켜기", Style.kr(context, 400), 12f, H_GOLD, 0f, Gravity.CENTER).apply { background = shape(stroke = tint(.6f, H_GOLD), strokePx = R1.z(.75f).coerceAtLeast(1)) }
-            R1.add(tap(b) { if (isAtv) doAtv() else doMz() }, 292f, 4f, 72f, 44f)
+            R1.add(tap(b) { if (isAtv) doAtv() else doMz() }, 292f, 2f, 72f, 44f)
             if (isAtv) { atvName = nm; atvSub = st; atvBtn = b } else { mzName = nm; mzState = st; mzBtn = b }
             houseViews += r
         }
-        hrow(741f, true); hrow(793f, false)
+        hrow(740f, true); hrow(788f, false)
         val q = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         q.addView(L.t("À LA MAISON", Style.jost(context, 400), 10f, H_GOLD, .3f, Gravity.CENTER))
         quietTitle = L.t("", Style.kr(context, 400), 15f, tint(.9f, H_IVORY), 0f, Gravity.CENTER); q.addView(quietTitle!!, LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(8f) })
@@ -846,21 +846,21 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         val sr = soundLine(L, 40f, 372f, 682f, 14f, tint(.85f, V_IVORY), V_IVORY, "바꾸기 ›", tint(.35f, V_IVORY))
         nowViews += listOf(sr, title!!, sub!!, pv, t0!!, t1!!, prev, pl, next)
         fun vrow(top: Float, isAtv: Boolean) {
-            val r = FrameLayout(context).apply { setBackgroundColor(0xFFDCD5C6.toInt()) }; L.addLR(r, 40f, 40f, top, 48f)
-            val R1 = Lay(context, r, L.w - L.x(80f), L.z(48f), 332f, 48f)
-            val nm = R1.t(if (isAtv) "Apple TV" else "Marantz", Fonts.serif(context), 15f, V_INK, .02f).also { R1.add(it, 16f, 14f) }
-            val st = R1.t("", Style.kr(context, 300), 12f, tint(.7f, V_INK)).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { R1.add(it, 116f, 16f, 136f) }
+            val r = FrameLayout(context).apply { setBackgroundColor(0xFFDCD5C6.toInt()) }; L.addLR(r, 40f, 40f, top, 44f)
+            val R1 = Lay(context, r, L.w - L.x(80f), L.z(44f), 332f, 44f)
+            val nm = R1.t(if (isAtv) "Apple TV" else "Marantz", Fonts.serif(context), 15f, V_INK, .02f).also { R1.add(it, 16f, 12f) }
+            val st = R1.t("", Style.kr(context, 300), 12f, tint(.7f, V_INK)).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { R1.add(it, 116f, 14f, 136f) }
             val b = R1.t("켜기", Style.kr(context, 400), 12f, V_IVORY, 0f, Gravity.CENTER).apply { setBackgroundColor(V_INK) }
-            R1.add(tap(b) { if (isAtv) doAtv() else doMz() }, 256f, 2f, 72f, 44f)
+            R1.add(tap(b) { if (isAtv) doAtv() else doMz() }, 260f, 0f, 72f, 44f)
             if (isAtv) { atvName = nm; atvSub = st; atvBtn = b } else { mzName = nm; mzState = st; mzBtn = b }
             houseViews += r
         }
-        vrow(742f, true); vrow(802f, false)
+        vrow(738f, true); vrow(790f, false)
         val q = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         quietTitle = L.t("", Style.kr(context, 400), 14f, V_IVORY, 0f, Gravity.CENTER); q.addView(quietTitle!!, LinearLayout.LayoutParams(-1, -2))
         val qb = hRow(); quietButtons(qb) { pad(L.t(it, Style.kr(context, 400), 12.5f, V_INK), 14f).apply { setBackgroundColor(V_IVORY) } }
         q.addView(qb, LinearLayout.LayoutParams(-2, L.z(44f)).apply { topMargin = L.z(14f) })
-        L.addLR(q, 28f, 28f, 742f); quietBox = q
+        L.addLR(q, 28f, 28f, 738f); quietBox = q
         val e = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; elevation = L.zf(12f) }
         e.addView(L.t("THE VOYAGE", Style.jost(context, 500), 11f, tint(.7f, V_IVORY), .45f, Gravity.CENTER))
         e.addView(L.t("Bon voyage.", Fonts.serifI(context), 28f, V_IVORY, 0f, Gravity.CENTER), LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(10f) })
@@ -901,11 +901,11 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         volLbl!!.letterSpacing = .15f
         val sr = soundLine(L, 32f, 380f, 670f, 14f, Style.ivory(.8f), Style.IVORY, "바꾸기 →", Style.ivory(.25f))
         nowViews += listOf(sr, art!!, credit, l1, title!!, sub!!, pv, row)
-        val hs = FrameLayout(context); L.addLR(hs, 32f, 32f, 724f, 128f)
-        val H = Lay(context, hs, L.w - L.x(64f), L.z(128f), 348f, 128f)
+        val hs = FrameLayout(context); L.addLR(hs, 32f, 32f, 718f, 124f)
+        val H = Lay(context, hs, L.w - L.x(64f), L.z(124f), 348f, 124f)
         H.add(H.t("ELSEWHERE IN THE HOUSE —", Style.jost(context, 400), 10f, Style.ivory(.85f), .3f), 0f, 0f)
         fun crow(top: Float, label: String, act: String, go: () -> Unit): Pair<TextView, TextView> {
-            val r = FrameLayout(context); H.addLR(r, 0f, 0f, top, 52f)
+            val r = FrameLayout(context); H.addLR(r, 0f, 0f, top, 48f)
             r.addView(View(context).apply { setBackgroundColor(Style.ivory(.15f)) }, LayoutParams(-1, 1))
             val t = H.t(label, Style.kr(context, 300), 14f, Style.ivory(.9f)).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
             r.addView(t, LayoutParams(H.z(260f), -2, Gravity.CENTER_VERTICAL))
@@ -914,7 +914,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
             houseViews += r; return t to b
         }
         crow(22f, "Apple TV", "재생") { doAtv() }.let { atvName = it.first; atvBtn = it.second }
-        crow(74f, "Marantz", "켜기 →") { doMz() }.let { mzName = it.first; mzBtn = it.second }
+        crow(70f, "Marantz", "켜기 →") { doMz() }.let { mzName = it.first; mzBtn = it.second }
         val q = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         quietTitle = H.t("", Style.kr(context, 400), 15f, Style.ivory(.9f), 0f, Gravity.CENTER); q.addView(quietTitle!!, LinearLayout.LayoutParams(-1, -2))
         val qb = hRow(); quietButtons(qb) { pad(H.t(it, Style.kr(context, 400), 12.5f, Style.IVORY), 4f).apply { background = UnderLine(Style.ivory(.6f), H.zf(1f), H.zf(8f)) } }
