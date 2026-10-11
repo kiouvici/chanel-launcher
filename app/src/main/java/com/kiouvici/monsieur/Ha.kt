@@ -62,6 +62,19 @@ object Ha {
         }
     }
 
+    /** HA 그림 받기 (Spotify 앨범 그림 entity_picture — 상대 경로) */
+    fun bitmap(token: String, path: String, cb: (android.graphics.Bitmap?) -> Unit) {
+        if (token.isBlank() || path.isBlank()) { cb(null); return }
+        io.execute {
+            val b = try {
+                val c = open(token, path, "GET")
+                val r = if (c.responseCode == 200) c.inputStream.use { android.graphics.BitmapFactory.decodeStream(it) } else null
+                c.disconnect(); r
+            } catch (e: Exception) { null }
+            main.post { cb(b) }
+        }
+    }
+
     /** 토큰 확인용 — /api/ 가 200이면 연결됨 */
     fun check(token: String, cb: (Boolean) -> Unit) {
         io.execute {

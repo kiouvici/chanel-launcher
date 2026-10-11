@@ -116,6 +116,9 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     // 소리 옮기기: 0 이 폰 · 1 Marantz, 8초 넘으면 실패
     private var moveTo = -1; private var moveAt = 0L; private var moveFail = false; private var lastMove = -1
     private var outMore: TextView? = null
+    private var spSig = ""
+    private var progView: LineProg? = null
+    private var libHead: TextView? = null
     private var l1: TextView? = null
     private var mzHead: TextView? = null
     private val am by lazy { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
@@ -138,7 +141,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         removeAllViews(); nowViews.clear(); houseViews.clear(); emptyViews.clear()
         art = null; title = null; sub = null; src = null; t0 = null; t1 = null; prog = null; play = null; playText = null
         out = null; sentence = null; whenLine = null; flaps = emptyList(); flapNote = null; spin = null; flowArt = null
-        atvName = null; atvSub = null; atvBtn = null; atvArt = null; mzState = null; mzBtn = null; mzName = null; vol = null; volLbl = null; volVal = null; outMore = null; l1 = null; mzHead = null; volPrefix = ""
+        atvName = null; atvSub = null; atvBtn = null; atvArt = null; mzState = null; mzBtn = null; mzName = null; vol = null; volLbl = null; volVal = null; outMore = null; l1 = null; mzHead = null; progView = null; libHead = null; volPrefix = ""
         val L = Lay(context, this, width, height)
         when (theme) {
             Look.LIBRARY -> buildLibrary(L)
@@ -207,23 +210,88 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     // ───────── 값 채우기 ─────────
     /** 화면 점검용 가짜 재생 (adb --ei demo 1 폰 · 2 Marantz) — 사람이 쓸 일은 없음 */
     var demo = 0
-        set(v) { field = v; if (v > 0) { home = demoHome(); haOk = true }; if (width > 0) { bind(); bindHome() } }
+        set(v) {
+            field = v
+            if (v > 0) { home = demoHome(); haOk = true }
+            val rv = Style.img(context, "th/riviera_photo.webp")
+            if (v == 3) { look.lastTitle = "Heaven Knows"; look.lastArtist = "성시경, Raisa"; look.lastAlbum = "Heaven Knows"; look.lastPkg = SPOTIFY_PKG; lastArt = rv; lastArtLoaded = true }
+            if (v == 4) { haArt = rv; haArtPath = "/demo" }
+            if (width > 0) { bind(); bindHome() }
+        }
     private fun demoHome(): Map<String, JSONObject> = mapOf(
         Ha.ATV to JSONObject().put("state", "off").put("attributes", JSONObject()),
-        Ha.MARANTZ to JSONObject().put("state", if (demo == 2) "playing" else "on").put("attributes", JSONObject().put("volume_level", .23)),
-        Ha.SPOTIFY to JSONObject().put("state", "playing").put("attributes", JSONObject().put("source", if (demo == 2) "Marantz NR1711" else "Galaxy S26 Ultra")))
-    private fun meta(k: String) = if (demo > 0) when (k) {
-        MediaMetadata.METADATA_KEY_TITLE -> "Heaven Knows"; MediaMetadata.METADATA_KEY_ARTIST -> "성시경, Raisa"; MediaMetadata.METADATA_KEY_ALBUM -> "Heaven Knows"; else -> "" }
-        else ctl?.metadata?.getString(k)?.takeIf { it.isNotBlank() } ?: ""
-    private val hasNow get() = demo > 0 || (ctl != null && meta(MediaMetadata.METADATA_KEY_TITLE).isNotEmpty())
-    private val playing get() = (demo == 1) || ctl?.playbackState?.state == PlaybackState.STATE_PLAYING
+        Ha.MARANTZ to JSONObject().put("state", if (demo == 2 || demo == 4) "playing" else "on").put("attributes", JSONObject().put("volume_level", .23)),
+        Ha.SPOTIFY to JSONObject().put("state", if (demo == 3) "idle" else "playing").put("attributes", JSONObject().put("source", if (demo == 2 || demo == 4) "Marantz NR1711" else "Galaxy S26 Ultra")
+            .put("media_title", if (demo == 4) "Heaven Knows" else "").put("media_artist", "성시경, Raisa").put("media_album_name", "Heaven Knows")
+            .put("entity_picture", "/demo").put("media_duration", 244).put("media_position", 74).put("media_position_updated_at", java.time.OffsetDateTime.now().toString())))
+    // ── 무엇을 보여 줄지: 0 없음 · 1 폰 재생 · 2 HA Spotify(다른 기기) · 3 마지막 곡
+    private fun ctlTitle() = ctl?.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)?.takeIf { it.isNotBlank() } ?: ""
+    private val ctlPlaying get() = ctl?.playbackState?.state == PlaybackState.STATE_PLAYING
+    private val spSt get() = home?.get(Ha.SPOTIFY)
+    private val haPlaying get() = haOk && spSt?.optString("state") == "playing" && Ha.attr(spSt, "media_title").isNotEmpty()
+    private val haPaused get() = haOk && spSt?.optString("state") == "paused" && Ha.attr(spSt, "media_title").isNotEmpty()
+    private val mode: Int get() = when {
+        demo == 1 || demo == 2 -> 1
+        demo == 3 -> 3
+        ctlTitle().isNotEmpty() && ctlPlaying -> 1
+        haPlaying -> 2
+        ctlTitle().isNotEmpty() -> 1
+        haPaused -> 2
+        look.lastTitle.isNotEmpty() -> 3
+        else -> 0
+    }
+    private fun meta(k: String): String {
+        if (demo == 1 || demo == 2) return when (k) {
+            MediaMetadata.METADATA_KEY_TITLE -> "Heaven Knows"; MediaMetadata.METADATA_KEY_ARTIST -> "성시경, Raisa"; MediaMetadata.METADATA_KEY_ALBUM -> "Heaven Knows"; else -> "" }
+        return when (mode) {
+            1 -> ctl?.metadata?.getString(k)?.takeIf { it.isNotBlank() } ?: ""
+            2 -> when (k) {
+                MediaMetadata.METADATA_KEY_TITLE -> Ha.attr(spSt, "media_title"); MediaMetadata.METADATA_KEY_ARTIST -> Ha.attr(spSt, "media_artist")
+                MediaMetadata.METADATA_KEY_ALBUM -> Ha.attr(spSt, "media_album_name"); else -> "" }
+            3 -> when (k) {
+                MediaMetadata.METADATA_KEY_TITLE -> look.lastTitle; MediaMetadata.METADATA_KEY_ARTIST -> look.lastArtist
+                MediaMetadata.METADATA_KEY_ALBUM -> look.lastAlbum; else -> "" }
+            else -> ""
+        }
+    }
+    private val hasNow get() = mode != 0
+    private val playing get() = when (mode) { 1 -> demo == 1 || ctlPlaying; 2 -> haPlaying; else -> false }
     private fun appName(): String {
         if (demo > 0) return "Spotify"
-        val pkg = ctl?.packageName ?: return ""
-        return try { context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(pkg, 0)).toString() } catch (e: Exception) { pkg }
+        val pkg = when (mode) { 1 -> ctl?.packageName; 2 -> SPOTIFY_PKG; 3 -> look.lastPkg.ifEmpty { SPOTIFY_PKG }; else -> null } ?: return ""
+        return try { context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(pkg, 0)).toString() } catch (e: Exception) { if (pkg == SPOTIFY_PKG) "Spotify" else pkg }
     }
-    private fun artBmp(): Bitmap? = if (demo > 0) Style.img(context, "th/riviera_photo.webp") else ctl?.metadata?.let {
-        it.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: it.getBitmap(MediaMetadata.METADATA_KEY_ART) ?: it.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+    private var haArt: Bitmap? = null; private var haArtPath = ""
+    private var lastArt: Bitmap? = null; private var lastArtLoaded = false
+    private val lastArtFile get() = java.io.File(context.filesDir, "last_art.png")
+    private fun artBmp(): Bitmap? = if (demo == 1 || demo == 2) Style.img(context, "th/riviera_photo.webp") else when (mode) {
+        1 -> ctl?.metadata?.let { it.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: it.getBitmap(MediaMetadata.METADATA_KEY_ART) ?: it.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON) }
+        2 -> { loadHaArt(); haArt }
+        3 -> { if (!lastArtLoaded) { lastArtLoaded = true; lastArt = try { android.graphics.BitmapFactory.decodeFile(lastArtFile.path) } catch (e: Exception) { null } }; lastArt }
+        else -> null
+    }
+    private fun loadHaArt() {
+        val path = Ha.attr(spSt, "entity_picture")
+        if (path.isEmpty() || path == haArtPath) return
+        haArtPath = path
+        Ha.bitmap(look.haToken, path) { b -> if (path == haArtPath) { haArt = b; if (b != null) saveLast(b); bind() } }
+    }
+    /** 지금 곡을 '마지막 곡'으로 적어 둠 (제목이 바뀔 때만) */
+    private var savedKey = ""
+    private fun saveLast(artOverride: Bitmap? = null) {
+        val m = mode
+        if (demo > 0 || (m != 1 && m != 2)) return
+        val t = meta(MediaMetadata.METADATA_KEY_TITLE); if (t.isEmpty()) return
+        val key = t + "|" + (artOverride != null)
+        val newSong = t != look.lastTitle
+        if (key == savedKey && !newSong) return
+        savedKey = key
+        look.lastTitle = t; look.lastArtist = meta(MediaMetadata.METADATA_KEY_ARTIST); look.lastAlbum = meta(MediaMetadata.METADATA_KEY_ALBUM)
+        look.lastPkg = if (m == 1) ctl?.packageName ?: SPOTIFY_PKG else SPOTIFY_PKG
+        val b = artOverride ?: artBmp() ?: return
+        lastArt = b; lastArtLoaded = true
+        val f = lastArtFile
+        Thread { try { f.outputStream().use { b.compress(Bitmap.CompressFormat.PNG, 100, it) } } catch (_: Exception) {} }.start()
     }
 
     /** 지금 소리가 나는 곳 (블루투스 이어폰 이름 · 유선 · 이 폰) */
@@ -247,15 +315,17 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         emptyBox?.visibility = if (now) View.GONE else View.VISIBLE
         if (!now) { stopAnims(); art?.bmp = null; if (theme == Look.TRAIN) art?.placeholder = 1; updateVol(); return }
         art?.placeholder = 0
+        saveLast()
+        progView?.idle = mode == 3   // 마지막 곡: 바탕선만 (손잡이·리본·채움 숨김)
         val t = meta(MediaMetadata.METADATA_KEY_TITLE)
         val ar = meta(MediaMetadata.METADATA_KEY_ARTIST).ifEmpty { meta(MediaMetadata.METADATA_KEY_ALBUM_ARTIST) }
         val al = meta(MediaMetadata.METADATA_KEY_ALBUM)
         val app = appName()
         art?.bmp = artBmp()
-        val outN = if (volTarget == 1) "Marantz NR1711" else outputName()
+        val outN = if (volTarget == 1) "Marantz NR1711" else if (mode == 2) Ha.attr(spSt, "source").ifEmpty { "Spotify" } else outputName()
         when (theme) {
             Look.LIBRARY -> {
-                val sb = android.text.SpannableStringBuilder("You are listening to “$t,” by ${ar.ifEmpty { "someone" }}.")
+                val sb = android.text.SpannableStringBuilder((if (mode == 3) "You last listened to" else "You are listening to") + " “$t,” by ${ar.ifEmpty { "someone" }}.")
                 Regex("[\\u1100-\\u11FF\\u3130-\\u318F\\uAC00-\\uD7A3]+([\\s,·]+[\\u1100-\\u11FF\\u3130-\\u318F\\uAC00-\\uD7A3]+)*").findAll(sb).forEach {
                     sb.setSpan(android.text.style.TypefaceSpan(Fonts.serifKR(context)), it.range.first, it.range.last + 1, 0)
                     sb.setSpan(android.text.style.RelativeSizeSpan(.88f), it.range.first, it.range.last + 1, 0)
@@ -264,7 +334,8 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
                 title?.text = if (al.isNotEmpty()) "Plate · $al" else "Plate · $app"
                 val cal = java.util.Calendar.getInstance()
                 val day = arrayOf("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")[cal.get(java.util.Calendar.DAY_OF_WEEK) - 1]
-                whenLine?.text = "%s, %d:%02d — %s".format(day, cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE), if (volTarget == 1) "on the Marantz" else "on this phone")
+                libHead?.text = if (mode == 3) "LAST PLAYED" else "NOW PLAYING"
+                whenLine?.text = if (mode == 3) "Earlier — on this phone" else "%s, %d:%02d — %s".format(day, cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE), "on " + where(false))
                 out?.text = if (moveFail || moveTo >= 0) outLabel(outN, "") else android.text.SpannableStringBuilder("Listening on ").append(outN,
                     android.text.style.TypefaceSpan(Style.kr(context, 300)), 0).append(" — ").append("바꾸기", android.text.style.UnderlineSpan(), 0)
             }
@@ -276,7 +347,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
             Look.CAPTION -> {
                 title?.text = t
                 out?.text = outLabel(outN, "")
-                l1?.text = if (volTarget == 1) "NOW, ON THE MARANTZ —" else "NOW, ON THIS PHONE —"
+                l1?.text = if (mode == 3) "LAST PLAYED —" else "NOW, ON " + where(false).uppercase() + " —"
             }
             Look.HOUR -> {
                 title?.text = t
@@ -286,7 +357,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
             else -> {
                 title?.text = t
                 sub?.text = listOf(ar, al).filter { it.isNotEmpty() }.joinToString(" · ")
-                src?.text = "${app.uppercase()} · " + if (volTarget == 1) "MARANTZ" else "PHONE"
+                src?.text = "${app.uppercase()} · " + if (mode == 3) "LAST PLAYED" else where(true).uppercase()
                 out?.text = outLabel(outN, "›")
             }
         }
@@ -304,6 +375,13 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
 
     }
 
+    /** 지금 재생되는 곳 이름: the Marantz · this phone · (HA Spotify 기기 이름) */
+    private fun where(short: Boolean): String = when {
+        volTarget == 1 -> if (short) "Marantz" else "the Marantz"
+        mode == 2 -> Ha.attr(spSt, "source").ifEmpty { "Spotify" }
+        else -> if (short) "Phone" else "this phone"
+    }
+
     /** 소리 줄 글자: '소리 · 기기 ›' · 옮기는 중 · 실패 */
     private fun outLabel(outN: String, arrow: String): String = when {
         moveFail -> "소리 · 옮기지 못했습니다 · 다시"
@@ -313,8 +391,29 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     }
 
     private fun updateProgress() {
-        if (demo > 0) { prog?.invoke(.3f); val a = "1:14"; val b = "4:04"
+        if (demo == 1 || demo == 2) { prog?.invoke(.3f); val a = "1:14"; val b = "4:04"
             when (theme) { Look.LIBRARY -> t1?.text = "$a / $b"; Look.CAPTION -> sub?.text = "성시경, Raisa · Heaven Knows · $a / $b"; else -> { t0?.text = a; t1?.text = b } }; return }
+        if (mode == 2 || mode == 3) {
+            var pos = 0L; var dur = 0L
+            if (mode == 2) {
+                dur = ((Ha.attr(spSt, "media_duration").toDoubleOrNull() ?: 0.0) * 1000).toLong()
+                pos = ((Ha.attr(spSt, "media_position").toDoubleOrNull() ?: 0.0) * 1000).toLong()
+                if (haPlaying) {
+                    val at = try { java.time.OffsetDateTime.parse(Ha.attr(spSt, "media_position_updated_at")).toInstant().toEpochMilli() } catch (e: Exception) { 0L }
+                    if (at > 0) pos += System.currentTimeMillis() - at
+                }
+                if (dur > 0) pos = pos.coerceIn(0, dur)
+            }
+            prog?.invoke(if (dur > 0) pos / dur.toFloat() else 0f)
+            val a = if (mode == 3) "" else fmtTime(pos); val b = if (mode == 3 || dur <= 0) "" else fmtTime(dur)
+            when (theme) {
+                Look.LIBRARY -> t1?.text = if (mode == 3) "" else "$a / $b"
+                Look.CAPTION -> { val ar = meta(MediaMetadata.METADATA_KEY_ARTIST); val al = meta(MediaMetadata.METADATA_KEY_ALBUM)
+                    sub?.text = (listOf(ar, al).filter { it.isNotEmpty() } + (if (mode == 3) "마지막으로 들은 곡" else "$a / $b")).joinToString(" · ") }
+                else -> { t0?.text = if (mode == 3 && (theme == Look.HOUR || theme == Look.TRAIN)) "LAST PLAYED" else a; t1?.text = b }
+            }
+            return
+        }
         val st = ctl?.playbackState ?: return
         val dur = ctl?.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
         var pos = st.position
@@ -397,6 +496,8 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
             if (volTarget == moveTo) { moveTo = -1; changed = true }
             else if (SystemClock.uptimeMillis() - moveAt > 8000) { lastMove = moveTo; moveTo = -1; moveFail = true; changed = true }
         }
+        val sig = spSt?.let { it.optString("state") + Ha.attr(it, "media_title") + Ha.attr(it, "entity_picture") } ?: ""
+        if (sig != spSig) { spSig = sig; changed = true }
         if (changed) bind()
         if (quiet) return
         val atvOn = Ha.on(atv)
@@ -429,7 +530,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         val sp = m?.get(Ha.SPOTIFY); val mz = m?.get(Ha.MARANTZ)
         val spOnMz = sp?.optString("state") == "playing" && Ha.attr(sp, "source").contains("marantz", true)
         val remote = ctl?.playbackInfo?.playbackType == MediaController.PlaybackInfo.PLAYBACK_TYPE_REMOTE
-        val phoneLocal = playing && !remote
+        val phoneLocal = ctlPlaying && !remote
         val mzPlaying = mz?.optString("state") == "playing"
         volTarget = if (Ha.on(mz) && (spOnMz || (mzPlaying && !phoneLocal))) 1 else 0
         val v = vol ?: return
@@ -445,6 +546,8 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     }
     /** 폰 볼륨을 삼성 볼륨 창과 같은 0~150 숫자로 */
     private fun phoneUnits(): Int {
+        FineVol.init(am)
+        FineVol.get(am)?.let { return it }
         val mx = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
         return Math.round(am.getStreamVolume(AudioManager.STREAM_MUSIC) * 150f / mx)
     }
@@ -456,8 +559,10 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         volTouch = SystemClock.uptimeMillis()
         volVal?.text = "$x"
         if (volTarget == 0) {
-            val mx = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-            am.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(x * mx / 150f), 0)
+            if (!FineVol.set(am, x)) {
+                val mx = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(x * mx / 150f), 0)
+            }
         } else {
             val now = SystemClock.uptimeMillis()
             mzPend = x.coerceAtMost(50); mzPendAt = now
@@ -494,9 +599,42 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         v.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY); go() }
         return v
     }
-    private fun doPrev() { ctl?.transportControls?.skipToPrevious() }
-    private fun doNext() { ctl?.transportControls?.skipToNext() }
-    private fun doPlay() { val c = ctl?.transportControls ?: return; if (playing) c.pause() else c.play() }
+    private fun haSp(svc: String) = Ha.call(look.haToken, "media_player", svc, JSONObject().put("entity_id", Ha.SPOTIFY)) { pollLater(800) }
+    private fun doPrev() { when (mode) { 1 -> ctl?.transportControls?.skipToPrevious(); 2 -> haSp("media_previous_track"); 3 -> resumeLast() } }
+    private fun doNext() { when (mode) { 1 -> ctl?.transportControls?.skipToNext(); 2 -> haSp("media_next_track"); 3 -> resumeLast() } }
+    private fun doPlay() {
+        when (mode) {
+            1 -> { val c = ctl?.transportControls ?: return; if (playing) c.pause() else c.play() }
+            2 -> haSp(if (playing) "media_pause" else "media_play")
+            3 -> resumeLast()
+        }
+    }
+    /** 마지막 곡 이어 듣기: 앱을 깨워(삼성 미디어 위젯과 같은 방식 — 최근 재생 요청) 재생, 안 되면 재생 단추 신호 */
+    private var browser: android.media.browse.MediaBrowser? = null
+    private fun resumeLast() {
+        val pkg = look.lastPkg.ifEmpty { SPOTIFY_PKG }
+        fun mediaKey() {
+            listOf(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.ACTION_UP).forEach {
+                am.dispatchMediaKeyEvent(android.view.KeyEvent(it, android.view.KeyEvent.KEYCODE_MEDIA_PLAY))
+            }
+            postDelayed({ pickSession() }, 1500)
+        }
+        val svc = try {
+            context.packageManager.queryIntentServices(android.content.Intent("android.media.browse.MediaBrowserService").setPackage(pkg), 0).firstOrNull()?.serviceInfo
+        } catch (e: Exception) { null }
+        if (svc == null) { mediaKey(); return }
+        try { browser?.disconnect() } catch (_: Exception) {}
+        var b: android.media.browse.MediaBrowser? = null
+        b = android.media.browse.MediaBrowser(context, ComponentName(svc.packageName, svc.name), object : android.media.browse.MediaBrowser.ConnectionCallback() {
+            override fun onConnected() {
+                try { MediaController(context, b!!.sessionToken).transportControls.play() } catch (e: Exception) { mediaKey() }
+                postDelayed({ pickSession(); try { b?.disconnect() } catch (_: Exception) {} }, 1500)
+            }
+            override fun onConnectionFailed() { mediaKey() }
+        }, android.os.Bundle().apply { putBoolean(android.service.media.MediaBrowserService.BrowserRoot.EXTRA_RECENT, true) })
+        browser = b
+        try { b.connect() } catch (e: Exception) { mediaKey() }
+    }
     /** 소리 줄: 실패 상태면 다시 시도, 아니면 소리 창 */
     private fun doOutput() {
         if (moveFail && lastMove >= 0) { moveFail = false; moveTo(lastMove); return }
@@ -644,7 +782,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         L.addLR(src!!, 36f, 36f, 386f)
         // 진행: 검정 선 + 둥근 손잡이
         val pv = LineProg(context, Style.ink(.22f), Style.INK, L.zf(1f), L.zf(2f), knobR = L.zf(5.5f), knobRing = 0xFFF3EEE4.toInt()).apply { elevation = L.zf(12f) }
-        L.addLR(pv, 38.5f, 38.5f, 417f, 14f); prog = { pv.p = it }
+        L.addLR(pv, 38.5f, 38.5f, 417f, 14f); progView = pv; prog = { pv.p = it }
         t0 = L.t("", Style.jost(context, 400), 11f, Style.ink(.65f), .1f).apply { elevation = L.zf(12f) }
         L.add(t0!!, 44f, 432f)
         t1 = L.t("", Style.jost(context, 400), 11f, Style.ink(.65f), .1f, Gravity.END).apply { elevation = L.zf(12f) }
@@ -701,7 +839,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     private fun buildLibrary(L: Lay) {
         lightBg = true
         background = android.graphics.drawable.LayerDrawable(arrayOf(android.graphics.drawable.ColorDrawable(0xFFF3EEE4.toInt()), Style.tile(context, Style.PAPER, 300f)))
-        L.add(L.t("NOW PLAYING", Style.jost(context, 400), 10f, Style.ink(.55f), .35f), 36f, 70f)
+        libHead = L.t("NOW PLAYING", Style.jost(context, 400), 10f, Style.ink(.55f), .35f).also { L.add(it, 36f, 70f) }
         whenLine = L.t("", Fonts.serifI(context), 17f, Style.ink(.7f)).also { L.add(it, 36f, 92f) }
         // 사진 모서리로 붙인 앨범아트
         val plate = FrameLayout(context).apply { setBackgroundColor(Color.WHITE); elevation = L.zf(3f); clipChildren = false }
@@ -718,7 +856,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         sentence = L.t("", Fonts.serif(context), 25f, Style.INK, 0f, Gravity.CENTER).apply { setLineSpacing(L.zf(4f), 1f); maxLines = 3; ellipsize = android.text.TextUtils.TruncateAt.END }
         L.addLR(sentence!!, 36f, 36f, 396f)
         val pv = LineProg(context, Style.ink(.3f), Style.INK, L.zf(1f), L.zf(2f), marker = Style.img(context, "th/bookmark.webp"), markerW = L.zf(14f), markerH = L.zf(34f))
-        L.addLR(pv, 29f, 29f, 476f, 38f); prog = { pv.p = it }
+        L.addLR(pv, 29f, 29f, 476f, 38f); progView = pv; prog = { pv.p = it }
         t1 = L.t("", Style.jost(context, 400), 11f, Style.ink(.65f), .1f, Gravity.END).also { L.addLR(it, 36f, 36f, 489f) }
         val deb = Style.img(context, "th/deboss.webp")
         fun db(kind: Int, size: Float, icon: Float) = FrameLayout(context).apply {
@@ -777,7 +915,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         tw.addView(title!!, LayoutParams(-1, -1).apply { leftMargin = L.z(10f); rightMargin = L.z(10f) })
         sub = L.t("", Style.kr(context, 300), 13f, tint(.65f, H_IVORY), 0f, Gravity.CENTER).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { L.addLR(it, 48f, 48f, 393f) }
         val pv = LineProg(context, tint(.2f, H_IVORY), H_GOLD, L.zf(1f), L.zf(2f)).also { L.add(it, 48f, 438f, 316f, 10f) }
-        prog = { pv.p = it }
+        progView = pv; prog = { pv.p = it }
         t0 = L.t("", Style.jost(context, 400), 11f, tint(.6f, H_IVORY), .05f).also { L.add(it, 48f, 455f) }
         t1 = L.t("", Style.jost(context, 400), 11f, tint(.6f, H_IVORY), .05f, Gravity.END).also { L.add(it, 304f, 455f, 60f) }
         fun cb(kind: Int, size: Float) = FrameLayout(context).apply {
@@ -833,7 +971,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         title = L.t("", Fonts.serif(context), 20f, V_INK, .02f, Gravity.CENTER).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; elevation = L.zf(11f) }.also { L.addLR(it, 56f, 56f, 418f) }
         sub = L.t("", Style.kr(context, 300), 13f, tint(.7f, V_INK), 0f, Gravity.CENTER).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; elevation = L.zf(11f) }.also { L.addLR(it, 56f, 56f, 446f) }
         val pv = LineProg(context, tint(.35f, V_IVORY), V_IVORY, L.zf(1f), L.zf(2f), knobR = L.zf(4f), knobRing = V_NAVY).also { L.addLR(it, 36f, 36f, 502f, 14f) }
-        prog = { pv.p = it }
+        progView = pv; prog = { pv.p = it }
         t0 = L.t("", Style.jost(context, 400), 11f, tint(.7f, V_IVORY), .05f).also { L.add(it, 40f, 515f) }
         t1 = L.t("", Style.jost(context, 400), 11f, tint(.7f, V_IVORY), .05f, Gravity.END).also { L.add(it, 312f, 515f, 60f) }
         fun ib(kind: Int, size: Float) = FrameLayout(context).apply {
@@ -889,7 +1027,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         title = L.t("", Style.jost(context, 300), 30f, Style.IVORY).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { L.addLR(it, 32f, 32f, 446f) }
         sub = L.t("", Style.kr(context, 300), 13f, Style.ivory(.75f)).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { L.addLR(it, 32f, 32f, 490f) }
         val pv = LineProg(context, Style.ivory(.2f), Style.IVORY, L.zf(1f), L.zf(2f)).also { L.addLR(it, 32f, 32f, 513f, 4f) }
-        prog = { pv.p = it; credit.text = "PHOTOGRAPHIE — " + meta(MediaMetadata.METADATA_KEY_ALBUM).ifEmpty { appName() }.uppercase() }
+        progView = pv; prog = { pv.p = it; credit.text = "PHOTOGRAPHIE — " + meta(MediaMetadata.METADATA_KEY_ALBUM).ifEmpty { appName() }.uppercase() }
         val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
         fun tb(s: String, go: () -> Unit) = L.t(s, Style.kr(context, 300), 15f, Style.ivory(.75f), .2f, Gravity.CENTER).also { row.addView(tap(it, go), LinearLayout.LayoutParams(0, -1, 1f)) }
         tb("이전") { doPrev() }
@@ -938,12 +1076,16 @@ class LineProg(ctx: Context, private val track: Int, private val fill: Int, priv
                private val marker: Bitmap? = null, private val markerW: Float = 0f, private val markerH: Float = 0f) : View(ctx) {
     var p = 0f
         set(v) { field = v.coerceIn(0f, 1f); invalidate() }
+    /** 재생 중이 아님(마지막 곡): 바탕선만 */
+    var idle = false
+        set(v) { if (field != v) { field = v; invalidate() } }
     private val pt = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     override fun onDraw(c: Canvas) {
         val pad = maxOf(knobR, markerW / 2)
         val y = if (marker != null) markerH * .15f + 2f else height / 2f
         val x0 = pad; val x1 = width - pad; val x = x0 + (x1 - x0) * p
         pt.color = track; c.drawRect(x0, y - trackPx / 2, x1, y + trackPx / 2, pt)
+        if (idle) return
         pt.color = fill; c.drawRect(x0, y - fillPx / 2, x, y + fillPx / 2, pt)
         if (knobR > 0f) { pt.color = knobRing; c.drawCircle(x, y, knobR + knobR * .36f, pt); pt.color = fill; c.drawCircle(x, y, knobR, pt) }
         if (marker != null) c.drawBitmap(marker, null, RectF(x - markerW / 2, y - markerH * .15f, x + markerW / 2, y + markerH * .85f), pt)

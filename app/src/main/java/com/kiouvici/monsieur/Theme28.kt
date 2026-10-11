@@ -336,6 +336,11 @@ class VolBar(ctx: Context, private val style: Int, private val color: Int, priva
     private fun x1() = width - padPx
     private fun frac() = value / max.toFloat()
     private fun xAt(f: Float) = x0() + (x1() - x0()) * f
+    /** 손잡이 자리 — DOTS는 켜진 마지막 점 */
+    private fun knobX(): Float = if (style == DOTS) {
+        val on = (frac() * 10f).roundToInt(); val step = (x1() - x0() - 6 * d) / 9f
+        x0() + 3 * d + (on - 1).coerceAtLeast(0) * step
+    } else xAt(frac())
 
     override fun onDraw(c: Canvas) {
         val y = height / 2f
@@ -377,12 +382,16 @@ class VolBar(ctx: Context, private val style: Int, private val color: Int, priva
         }
     }
 
-    // 톡 눌러서 뛰지 않음: 옆으로 끌 때만 값이 바뀜. 처음 8dp로 방향을 정하고, 위로(가로의 1.7배 넘게) 밀면 서랍에 넘김
+    // 톡 눌러서 뛰지 않음: 손잡이를 잡고 옆으로 끌 때만 값이 바뀜. 처음 8dp로 방향을 정하고, 위로(가로의 1.7배 넘게) 밀면 서랍에 넘김
     private var downX = 0f; private var downY = 0f; private var startV = 0; private var mode = 0   // 0 미정 · 1 볼륨 · 2 넘김
     @android.annotation.SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y; startV = value; mode = 0; return true }
+            MotionEvent.ACTION_DOWN -> {
+                // 손잡이(지금 값 자리) 근처를 잡았을 때만 볼륨 — 나머지 자리에서 옆으로 밀면 화면 넘기기 (볼륨이 먹히던 것)
+                if (kotlin.math.abs(e.x - knobX()) > 28 * d) return false
+                downX = e.x; downY = e.y; startV = value; mode = 0; return true
+            }
             MotionEvent.ACTION_MOVE -> {
                 val dx = e.x - downX; val dy = e.y - downY
                 if (mode == 0 && kotlin.math.hypot(dx, dy) > 8 * d) {
