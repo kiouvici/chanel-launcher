@@ -44,7 +44,7 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), MediaHost {
 
     companion object {
         const val HOME_URL = "https://kiouvici.synology.me:8123/dashboard-chanel/home"
@@ -86,8 +86,11 @@ class MainActivity : ComponentActivity() {
         val EASE = PathInterpolator(.32f, .72f, 0f, 1f)
     }
 
-    private lateinit var repo: AppRepo
-    private lateinit var root: FrameLayout
+    internal lateinit var repo: AppRepo
+    override lateinit var look: Look
+    internal lateinit var root: FrameLayout
+    internal lateinit var media: MediaPage
+    internal lateinit var themeCover: ThemeCover
     private lateinit var web: WebView
     private lateinit var webHouse: WebView
     private lateinit var pager: FrameLayout
@@ -100,35 +103,59 @@ class MainActivity : ComponentActivity() {
     private lateinit var failBox: LinearLayout
     private lateinit var dim: View
     private lateinit var band: FrameLayout
-    private lateinit var gridScroll: ScrollView
-    private var sbTop = 0           // 상태바 높이
-    private var navBot = 0          // 아래 시스템 제스처 영역 높이
+    internal var sbTop = 0           // 상태바 높이
+    internal var navBot = 0          // 아래 시스템 제스처 영역 높이
     private var imeBot = 0          // 키보드 높이 (이름 바꾸기 시트를 키보드 위로)
     private var loginLayer: FrameLayout? = null
     private var lastLogin = 0L
-    private lateinit var box: FrameLayout
-    private lateinit var grid: GridLayout
-    private lateinit var folio: TextView
-    private lateinit var search: EditText
-    private lateinit var card: FrameLayout
-    private lateinit var cardKicker: TextView
-    private lateinit var cardTitle: TextView
+    internal lateinit var box: FrameLayout
+    internal lateinit var folio: TextView
+    internal lateinit var settingsBtn: TextView
+    internal lateinit var search: EditText
+    internal lateinit var searchLine: View
+    internal lateinit var card: FrameLayout
+    internal lateinit var cardKicker: TextView
+    internal lateinit var cardTitle: TextView
+    internal lateinit var cardSub: TextView
     private lateinit var cardHint: TextView
     private lateinit var cardApps: GridLayout
     private lateinit var cardScroll: ScrollView
     private lateinit var cardScrim: View
+    internal lateinit var stubPerf: View
+    internal var cardSkin = Look.MONSIEUR
+    // 테마 서랍 (Drawers.kt)
+    internal lateinit var deco: FrameLayout
+    internal lateinit var hdr: FrameLayout
+    internal lateinit var col: LinearLayout
+    internal lateinit var stage: ScrollView
+    internal lateinit var stageIn: FrameLayout
+    internal lateinit var rimShade: View
+    internal lateinit var rim: View
+    internal lateinit var tab: ImageView
+    internal lateinit var grip: View
+    internal var lidNow: TextView? = null
+    internal var dialFace: DialFace? = null
+    internal var hourWx: TextView? = null
+    internal var trainClock: TextView? = null
+    internal var hourCenter: FrameLayout? = null
+    internal var folioBase = "31 · RUE CAMBON · %s"
+    internal var themeOpen: View? = null
+    internal var collection: View? = null
+    internal var collPlace: (() -> Unit)? = null
 
     private var openP = 0f          // 0 닫힘 ~ 1 열림
     private var boxH = 0
-    private var reduceMotion = false
+    internal var reduceMotion = false
     private var pageLoaded = false
-    private var cardFolder: String? = null
-    private var cur = 0               // 0 표지 · 1 HA 홈 · 2 HA 집
+    internal var cardFolder: String? = null
+    private var cur = 0               // 0 표지 · 1 미디어 · 2 HA 홈 · 3 HA 집
+    private val N = 4
 
     // ───────── 시작 ─────────
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repo = AppRepo(this)
+        look = Look(this)
         reduceMotion = Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
         root = FrameLayout(this).apply { setBackgroundColor(Style.INK) }
         setContentView(root)
@@ -180,11 +207,13 @@ class MainActivity : ComponentActivity() {
                 when {
                     menuLayer != null -> hideMenu()
                     sheetBg != null -> hideSettingsSheet()
+                    collection != null -> hideCollection()
                     pickFolder != null -> { pickFolder = null; cardFolder?.let { showFolder(it) } }
+                    themeOpen != null -> hideCard()
                     card.visibility == View.VISIBLE -> hideCard()
                     openP > 0f -> animateOpen(0f)
-                    cur == 1 && haBack(web, HOME_URL) -> {}
-                    cur == 2 && haBack(webHouse, HOUSE_URL) -> {}
+                    cur == 2 && haBack(web, HOME_URL) -> {}
+                    cur == 3 && haBack(webHouse, HOUSE_URL) -> {}
                     cur != 0 -> goPage(0)
                 }
             }
@@ -195,7 +224,7 @@ class MainActivity : ComponentActivity() {
         override fun onReceive(c: android.content.Context?, i: Intent?) {
             when (i?.action) {
                 Intent.ACTION_SCREEN_OFF -> { closeAllNow(); goPage(0, false) }
-                else -> { updateDate(); refreshWeather() }
+                else -> { updateDate(); refreshWeather(); themeCover.tick(); updateThemeClock() }
             }
         }
     }
@@ -226,7 +255,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private var badgeDirty = false
-    private val gridDots = HashMap<String, View>()
+    internal val gridDots = HashMap<String, View>()
     private val cardDots = HashMap<String, MutableList<View>>()
     /** 알림 점만 다시 켜고 끔 (서랍 전체를 다시 그리지 않음) */
     private fun refreshBadges() {
@@ -236,7 +265,7 @@ class MainActivity : ComponentActivity() {
         cardDots.forEach { (pkg, vs) -> vs.forEach { it.visibility = if (pkg in b) View.VISIBLE else View.GONE } }
     }
 
-    private fun closeAllNow() { hideMenu(); hideSettingsSheet(); hideCard(); if (::search.isInitialized) search.setText(""); anim?.cancel(); setOpen(0f) }
+    private fun closeAllNow() { hideMenu(); hideSettingsSheet(); hideCollection(); hideCard(); if (::search.isInitialized) search.setText(""); anim?.cancel(); setOpen(0f) }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -251,6 +280,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshGrid()
+        media.setShown(cur == 1)
         updateDate()
         root.postDelayed({ refreshWeather() }, 1500)
         if (!pageLoaded) web.reload()
@@ -279,17 +309,20 @@ class MainActivity : ComponentActivity() {
         }
         (band.layoutParams as FrameLayout.LayoutParams).bottomMargin = navBot; band.requestLayout()
         (indicator.layoutParams as FrameLayout.LayoutParams).bottomMargin = navBot + dp(8f); indicator.requestLayout()
-        val top = sbTop + dp(24f)
-        boxH = root.height - top
-        (box.layoutParams as FrameLayout.LayoutParams).apply { height = boxH; topMargin = top }
+        // 서랍은 화면 전체 (테마마다 위쪽을 직접 꾸밈 — MONSIEUR는 뚜껑 띠)
+        boxH = root.height
+        (box.layoutParams as FrameLayout.LayoutParams).apply { height = boxH; topMargin = 0 }
         box.requestLayout()
+        themeCover.sbTop = sbTop; themeCover.navBot = navBot
         layoutCover()
+        themeBox()
         setOpen(openP)
         refreshGrid()
     }
 
     override fun onPause() {
         super.onPause()
+        media.setShown(false)
         CookieManager.getInstance().flush()
     }
 
@@ -382,13 +415,14 @@ class MainActivity : ComponentActivity() {
         pager = Pager()
         root.addView(pager, FrameLayout.LayoutParams(-1, -1))
         cover = buildCover()
+        media = MediaPage(this, this)
         web = makeWeb(HOME_URL, true)
         webHouse = makeWeb(HOUSE_URL, false)
-        pages = listOf(cover, web, webHouse)
+        pages = listOf(cover, media, web, webHouse)
         pages.forEach { pager.addView(it, FrameLayout.LayoutParams(-1, -1)) }
 
         indicator = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        repeat(3) { i ->
+        repeat(N) { i ->
             indicator.addView(View(this).apply { setBackgroundColor(Style.IVORY) },
                 LinearLayout.LayoutParams(dp(16f), dp(1f)).apply { if (i > 0) leftMargin = dp(8f) })
         }
@@ -428,6 +462,9 @@ class MainActivity : ComponentActivity() {
         frame = View(this).apply { background = GradientDrawable().apply { setStroke(dp(1f), Style.ivory(.4f)) } }
         c.addView(frame, FrameLayout.LayoutParams(-1, -1))
         updateDate()
+        // MONSIEUR 외 네 테마의 표지는 이 층이 덮어 그림 (HA 준비 금선·다시 연결은 그 위)
+        themeCover = ThemeCover(this, look).apply { onPhoto = { pickPhotos() } }
+        c.addView(themeCover, FrameLayout.LayoutParams(-1, -1))
 
         progressTrack = FrameLayout(this).apply { setBackgroundColor(Style.gold(.2f)) }
         progress = View(this).apply { setBackgroundColor(Style.GOLD); pivotX = 0f; scaleX = 0f }
@@ -546,30 +583,42 @@ class MainActivity : ComponentActivity() {
         pages.forEachIndexed { i, v ->
             val rel = when (i) {
                 cur -> 0
-                (cur + 1) % 3 -> 1
-                else -> -1
+                (cur + 1) % N -> 1
+                (cur + N - 1) % N -> -1
+                else -> 2
             }
             v.translationX = rel * w + dx
             // HA 화면은 늘 그려 둠(화면 밖으로 밀어 둘 뿐) — 숨기면 웹뷰가 그리기를 멈춰 날씨 문장을 못 읽음
-            v.visibility = if (v !== cover || rel == 0 || (rel == 1 && dx < 0) || (rel == -1 && dx > 0)) View.VISIBLE else View.INVISIBLE
+            val near = rel == 0 || (rel == 1 && dx < 0) || (rel == -1 && dx > 0)
+            v.visibility = if (v is WebView || near) View.VISIBLE else View.INVISIBLE
         }
         for (i in 0 until indicator.childCount) indicator.getChildAt(i).alpha = if (i == cur) 1f else .3f
-        // 아래 리본 한 줄은 HA 화면에서만 (표지가 보이는 만큼 옅어짐)
+        // 아래 리본 한 줄은 HA 화면에서만 (HA 화면이 보이는 만큼)
         if (::band.isInitialized) {
-            val coverX = cover.translationX
-            val shown = if (cover.visibility == View.VISIBLE) (1f - kotlin.math.abs(coverX) / w).coerceIn(0f, 1f) else 0f
-            band.alpha = 1f - shown
+            fun shown(v: View) = if (v.visibility == View.VISIBLE) (1f - kotlin.math.abs(v.translationX) / w).coerceIn(0f, 1f) else 0f
+            band.alpha = maxOf(shown(web), shown(webHouse))
             band.visibility = if (band.alpha > .01f) View.VISIBLE else View.INVISIBLE
         }
+        if (dx == 0f) { media.setShown(cur == 1); updateBars() }
+    }
+
+    /** 밝은 바탕(LIBRARY 표지·미디어)에서는 상태바 글자를 검정으로 */
+    private var barsLight: Boolean? = null
+    internal fun updateBars() {
+        val light = openP == 0f && themeOpen == null && ((cur == 0 && themeCover.isLight) || (cur == 1 && media.isLight))
+        if (light == barsLight) return
+        barsLight = light
+        androidx.core.view.WindowCompat.getInsetsController(window, root).isAppearanceLightStatusBars = light
     }
 
     private var pageAnim: ValueAnimator? = null
     private fun goPage(target: Int, animate: Boolean = true, fromDx: Float = 0f) {
         pageAnim?.cancel()
         val w = pager.width.toFloat().takeIf { it > 0 } ?: resources.displayMetrics.widthPixels.toFloat()
-        val n = ((target % 3) + 3) % 3
+        val n = ((target % N) + N) % N
         if (!animate || n == cur && fromDx == 0f) { cur = n; layoutPages(0f); return }
-        val dir = when (n) { (cur + 1) % 3 -> -1f; cur -> 0f; else -> 1f }
+        if (n != cur && n != (cur + 1) % N && n != (cur + N - 1) % N) { cur = n; layoutPages(0f); return }   // 두 장 건너뛰기는 바로
+        val dir = when (n) { (cur + 1) % N -> -1f; cur -> 0f; else -> 1f }
         if (reduceMotion) {
             cur = n; layoutPages(0f)
             pages[cur].alpha = 0f; pages[cur].animate().alpha(1f).setDuration(120).start(); return
@@ -592,12 +641,14 @@ class MainActivity : ComponentActivity() {
         private var vt: android.view.VelocityTracker? = null
         override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
             when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { x0 = e.x; y0 = e.y; dragging = false; pageAnim?.cancel()
+                MotionEvent.ACTION_DOWN -> { x0 = e.x; y0 = e.y; dragging = false; vertical = false; p0 = openP; pageAnim?.cancel()
                     vt?.recycle(); vt = android.view.VelocityTracker.obtain(); vt?.addMovement(e) }
                 MotionEvent.ACTION_MOVE -> {
                     vt?.addMovement(e)
                     val dx = e.x - x0; val dy = e.y - y0
                     if (kotlin.math.abs(dx) > slop * 2 && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.2f) { dragging = true; x0 = e.x - dx; return true }
+                    // 표지 위 사진·버튼을 누른 채 위로 쓸어도 서랍이 열림
+                    if (cur == 0 && -dy > slop * 2 && kotlin.math.abs(dy) > kotlin.math.abs(dx) * 1.2f) { vertical = true; y0 = e.y - dy; return true }
                 }
             }
             return false
@@ -630,7 +681,7 @@ class MainActivity : ComponentActivity() {
                     vt?.computeCurrentVelocity(1000); val v = vt?.xVelocity ?: 0f
                     val far = kotlin.math.abs(dx) > width * .25f || (kotlin.math.abs(v) > 1200 && kotlin.math.abs(dx) > slop)
                     dragging = false
-                    if (far) goPage(if (dx < 0) cur + 1 else cur + 2, true, dx) else goBack(dx)
+                    if (far) goPage(if (dx < 0) cur + 1 else cur + N - 1, true, dx) else goBack(dx)
                     return true
                 }
             }
@@ -671,7 +722,7 @@ class MainActivity : ComponentActivity() {
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     if (!fromOpen && !moved) { animateOpen(1f); return true }
-                    animateOpen(if (fromOpen) (if (openP < .65f) 0f else 1f) else (if (openP > .35f) 1f else 0f))
+                    animateOpen(if (fromOpen) (if (openP < .85f) 0f else 1f) else (if (openP > .35f) 1f else 0f))
                     return true
                 }
             }
@@ -693,6 +744,7 @@ class MainActivity : ComponentActivity() {
         //  로그인 창에서 키보드가 뜨면 화면 재배치 → 곧바로 키보드가 내려가는 문제가 있었음)
         if (p == 0f && wasOpen) hideKeyboard()
         if (p > 0f && !wasOpen && badgeDirty) refreshBadges()
+        updateBars()
     }
 
     private var anim: ValueAnimator? = null
@@ -726,8 +778,8 @@ class MainActivity : ComponentActivity() {
                 MotionEvent.ACTION_MOVE -> {
                     vt?.addMovement(e)
                     val dy = e.rawY - y0
-                    val atTop = !::gridScroll.isInitialized || gridScroll.scrollY == 0
-                    if (atTop && card.visibility != View.VISIBLE && dy > slop * 2 && dy > kotlin.math.abs(e.rawX - x0) * 1.2f) {
+                    val atTop = !::stage.isInitialized || stage.scrollY == 0
+                    if (atTop && card.visibility != View.VISIBLE && themeOpen == null && dy > slop * 2 && dy > kotlin.math.abs(e.rawX - x0) * 1.2f) {
                         drag = true; y0 = e.rawY - dy; hideKeyboard(); return true
                     }
                 }
@@ -743,18 +795,18 @@ class MainActivity : ComponentActivity() {
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     drag = false
                     vt?.computeCurrentVelocity(1000); val vy = vt?.yVelocity ?: 0f
-                    animateOpen(if (openP < .7f || vy > dpf(1000f)) 0f else 1f)
+                    // 15%만 끌어 내리거나 살짝 튕기면(600dp/s) 닫힘 — 예전 30%·1000dp/s는 너무 많이 끌어야 했음
+                    animateOpen(if (openP < .85f || vy > dpf(600f)) 0f else 1f)
                 }
             }
             return true
         }
     }
 
-    // ───────── ② 상자 안 (서랍) ─────────
+    // ───────── ② 상자 안 (서랍) — 테마마다 꾸밈은 Drawers.kt ─────────
     @SuppressLint("ClickableViewAccessibility")
     private fun buildBox() {
         box = BoxLayout().apply {
-            // 검정 실크 그로그랭 바닥 (완전 불투명 위에 질감) — 샤넬팀 B안
             background = android.graphics.drawable.LayerDrawable(arrayOf(
                 android.graphics.drawable.ColorDrawable(Style.INK), Style.tile(this@MainActivity, Style.GROSGRAIN, 256f)))
             isClickable = true
@@ -762,21 +814,23 @@ class MainActivity : ComponentActivity() {
             elevation = dpf(8f)
         }
         root.addView(box, FrameLayout.LayoutParams(-1, -1))
+        deco = FrameLayout(this)
+        box.addView(deco, FrameLayout.LayoutParams(-1, -1))
 
-        // ── 맨 위: 평평한 검정 가장자리 28dp + 아이보리 테두리선 + 가운데 리본 당김 탭 (샤넬팀 A안 4:2:1)
-        box.addView(View(this).apply {
+        // MONSIEUR: 평평한 검정 가장자리 28dp + 아이보리 테두리선 + 가운데 리본 당김 탭
+        rimShade = View(this).apply {
             background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.argb(140, 0, 0, 0), Color.TRANSPARENT))
-        }, FrameLayout.LayoutParams(-1, dp(20f)).apply { topMargin = dp(29f) })
-        val rim = View(this).apply { background = RimDrawable(); elevation = dpf(2f) }
+        }
+        box.addView(rimShade, FrameLayout.LayoutParams(-1, dp(20f)).apply { topMargin = dp(29f) })
+        rim = View(this).apply { background = RimDrawable(); elevation = dpf(2f) }
         box.addView(rim, FrameLayout.LayoutParams(-1, dp(29f)))
-        val tab = ImageView(this).apply {
+        tab = ImageView(this).apply {
             setImageDrawable(Style.tabDrawable(this@MainActivity)); scaleType = ImageView.ScaleType.FIT_XY
             elevation = dpf(4f); outlineSpotShadowColor = Color.argb(128, 0, 0, 0)
         }
-        // 실사 리본 탭은 가로로 긴 고리(약 3:1)라 60×20dp, 선 아래로 약 12dp 늘어짐. 코드로 그린 탭이면 44×24dp
         val real = Style.has(this, "tab.webp")
         box.addView(tab, FrameLayout.LayoutParams(dp(if (real) 60f else 44f), dp(if (real) 20f else 24f), Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(if (real) 20f else 18f) })
-        val grip = View(this).apply { contentDescription = "서랍 닫기" }
+        grip = View(this).apply { contentDescription = "서랍 닫기"; elevation = dpf(5f) }
         box.addView(grip, FrameLayout.LayoutParams(-1, dp(56f)))
         val drag = DragOpen(fromOpen = true)
         grip.setOnTouchListener { v, e ->
@@ -787,25 +841,19 @@ class MainActivity : ComponentActivity() {
             drag.onTouch(v, e)
         }
 
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        box.addView(col, FrameLayout.LayoutParams(-1, -1).apply {
-            topMargin = dp(40f); leftMargin = dp(16f); rightMargin = dp(16f); bottomMargin = dp(20f)
-        })
+        col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        box.addView(col, FrameLayout.LayoutParams(-1, -1).apply { topMargin = dp(40f); leftMargin = dp(16f); rightMargin = dp(16f) })
+        hdr = FrameLayout(this)
+        col.addView(hdr, LinearLayout.LayoutParams(-1, dp(40f)))
+        stageIn = FrameLayout(this)
+        stage = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; clipChildren = false; addView(stageIn, FrameLayout.LayoutParams(-1, -2)) }
+        col.addView(stage, LinearLayout.LayoutParams(-1, 0, 1f))
+        stage.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, oRight, ob -> if (r - l != oRight - ol || b - t != ob - ot) stage.post { buildStage() } }
 
-        // 머리: THE BOX 가운데 + 금선 24×1
-        val hd = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
-        hd.addView(label("THE BOX", Style.jost(this, 400), 11f, Style.ivory(.85f), .45f))
-        hd.addView(View(this).apply { setBackgroundColor(Style.GOLD) }, LinearLayout.LayoutParams(dp(24f), dp(1f)).apply { topMargin = dp(8f) })
-        col.addView(hd, LinearLayout.LayoutParams(-1, dp(40f)))
-
-        grid = GridLayout(this).apply { columnCount = 5; useDefaultMargins = false }
-        gridScroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; addView(grid) }
-        col.addView(gridScroll, LinearLayout.LayoutParams(-1, 0, 1f))
-
-        // 검색: 금 40% 밑줄, 금 돋보기
+        // 검색: 금 밑줄, 금 돋보기
         search = EditText(this).apply {
             hint = "SEARCH · 찾기"
-            setHintTextColor(Style.ivory(.45f)); setTextColor(Style.IVORY)
+            setHintTextColor(Style.ivory(.6f)); setTextColor(Style.IVORY)
             typeface = Style.jost(this@MainActivity, 300); textSize = 13f; letterSpacing = .08f
             setSingleLine(); background = null
             setPadding(dp(28f), 0, dp(4f), 0)
@@ -817,7 +865,8 @@ class MainActivity : ComponentActivity() {
         }
         val sWrap = FrameLayout(this)
         sWrap.addView(search, FrameLayout.LayoutParams(-1, -1))
-        sWrap.addView(View(this).apply { setBackgroundColor(Style.gold(.4f)) }, FrameLayout.LayoutParams(-1, hair(.75f), Gravity.BOTTOM))
+        searchLine = View(this).apply { setBackgroundColor(Style.gold(.4f)) }
+        sWrap.addView(searchLine, FrameLayout.LayoutParams(-1, hair(.75f), Gravity.BOTTOM))
         sWrap.addView(SearchGlyph(), FrameLayout.LayoutParams(dp(16f), dp(16f), Gravity.CENTER_VERTICAL).apply { leftMargin = dp(2f) })
         col.addView(sWrap, LinearLayout.LayoutParams(-1, dp(44f)).apply { topMargin = dp(8f) })
 
@@ -825,19 +874,19 @@ class MainActivity : ComponentActivity() {
         val footWrap = FrameLayout(this)
         footWrap.addView(View(this).apply { setBackgroundColor(Style.ivory(.08f)) }, FrameLayout.LayoutParams(-1, hair(.5f), Gravity.TOP))
         val foot = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        folio = label("31 · RUE CAMBON · 30 FOLDERS", Style.jost(this, 300), 9f, Style.ivory(.4f), .25f, Gravity.START or Gravity.CENTER_VERTICAL)
+        folio = label("31 · RUE CAMBON · 30 FOLDERS", Style.jost(this, 300), 9f, Style.ivory(.6f), .25f, Gravity.START or Gravity.CENTER_VERTICAL)
         folio.setOnClickListener { if (repo.unassigned().isNotEmpty()) showUnassigned() }
         foot.addView(folio, LinearLayout.LayoutParams(0, -1, 1f))
-        val reg = label("SETTINGS", Style.jost(this, 300), 9f, Style.ivory(.4f), .25f, Gravity.END or Gravity.CENTER_VERTICAL)
-        reg.contentDescription = "설정"
-        reg.setOnClickListener { showSettingsSheet() }
-        foot.addView(reg, LinearLayout.LayoutParams(dp(88f), -1))
+        settingsBtn = label("SETTINGS", Style.jost(this, 300), 9f, Style.ivory(.6f), .25f, Gravity.END or Gravity.CENTER_VERTICAL)
+        settingsBtn.contentDescription = "설정"
+        settingsBtn.setOnClickListener { showSettingsSheet() }
+        foot.addView(settingsBtn, LinearLayout.LayoutParams(dp(88f), -1))
         footWrap.addView(foot, FrameLayout.LayoutParams(-1, -1))
-        col.addView(footWrap, LinearLayout.LayoutParams(-1, dp(36f)))
+        col.addView(footWrap, LinearLayout.LayoutParams(-1, dp(40f)).apply { bottomMargin = dp(8f) })
     }
 
     /** 0.5dp 같은 가는 선 — 최소 1px */
-    private fun hair(v: Float) = dpf(v).toInt().coerceAtLeast(1)
+    internal fun hair(v: Float) = dpf(v).toInt().coerceAtLeast(1)
 
     /** 맨 위 가장자리: #0A0A0A + 위 아이보리 12% 0.5dp + 아래 아이보리 70% 1dp 테두리선 */
     private inner class RimDrawable : android.graphics.drawable.Drawable() {
@@ -863,44 +912,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** 폴더 = 세워 둔 코튼 카드 (샤넬팀 B안). 30개 이하는 6줄이 한 화면에, 31개부터 격자만 스크롤 */
-    private fun refreshGrid() {
-        if (!::grid.isInitialized) return
-        grid.removeAllViews()
-        gridDots.clear()
-        val folders = repo.folders()
-        val w = resources.displayMetrics.widthPixels - dp(32f)
-        val gap = dp(10f)
-        val rowGap = dp(14f)
-        val colW = (w - gap * 4) / 5
-        // 남는 높이 = 상자 − 제스처 − 위 40 − 머리 40 − 검색 52 − 폴리오 36 − 아래 20
-        val boxHeight = if (boxH > 0) boxH else resources.displayMetrics.heightPixels - dp(48f)
-        val avail = boxHeight - navBot - dp(188f)
-        val cardH = ((avail - rowGap * 5 - dp(4f)) / 6).coerceIn(dp(84f), dp(92f))
-        val favs = repo.favorites()
-        val badges = BadgeService.active
-        val q = search.text?.toString()?.trim() ?: ""
-        folders.forEachIndexed { i, id ->
-            val inF = repo.appsIn(id)
-            val v = folderCell(i, id, inF, colW, cardH, id in favs, inF.any { it.pkg in badges })
-            if (q.isNotEmpty() && !repo.nameOf(id).contains(q) && inF.none { it.label.contains(q, true) }) v.alpha = .25f
-            grid.addView(v, GridLayout.LayoutParams().apply {
-                width = colW; height = cardH
-                leftMargin = if (i % 5 == 0) 0 else gap
-                topMargin = if (i < 5) dp(4f) else rowGap
-                bottomMargin = dp(8f).takeIf { i >= folders.size - 5 } ?: 0   // 맨 아래 줄 그림자 자리
-            })
-        }
-        val n = folders.size
-        val un = repo.unassigned().size
-        folio.text = "31 · RUE CAMBON · " + (if (n == 1) "1 FOLDER" else "$n FOLDERS") + (if (un > 0) " · UNSORTED $un" else "")
+    /** 서랍을 다시 그림 (테마별 배치는 Drawers.kt의 buildStage) */
+    internal fun refreshGrid() {
+        if (!::stage.isInitialized) return
+        buildStage()
     }
 
     /** '쇼핑(온라인)' → '쇼핑·온라인' 한 줄 */
-    private fun shortName(name: String) = Regex("^(.+)\\((.+)\\)$").replace(name, "$1·$2")
+    internal fun shortName(name: String) = Regex("^(.+)\\((.+)\\)$").replace(name, "$1·$2")
 
     /** 카드 테두리: 3dp 안쪽 0.75dp 검은 선 (편지지 bordure noire) + 자주 여는 폴더는 바깥 1.5dp 금박 */
-    private inner class CardLine(private val fav: Boolean, private val dashed: Boolean = false) : android.graphics.drawable.Drawable() {
+    internal inner class CardLine(private val fav: Boolean, private val dashed: Boolean = false) : android.graphics.drawable.Drawable() {
         private val ink = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dpf(.75f); color = Style.INK }
         private val gilt = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dpf(1.5f) }
         override fun draw(c: Canvas) {
@@ -920,23 +942,26 @@ class MainActivity : ComponentActivity() {
         override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
     }
 
-    private fun folderCell(index: Int, id: String, list: List<AppEntry>, w: Int, h: Int, fav: Boolean, badge: Boolean): View {
+    /** ① MONSIEUR 편지 카드 (68×78 기준, 크기는 화면에 맞춤) */
+    internal fun folderCell(index: Int, id: String, list: List<AppEntry>, w: Int, h: Int, fav: Boolean, badge: Boolean): View {
         val cv = FrameLayout(this).apply {
             background = Style.tile(this@MainActivity, Style.PAPER, 220f)
             foreground = CardLine(fav)
             elevation = dpf(3f)
             outlineSpotShadowColor = Color.argb(153, 0, 0, 0); outlineAmbientShadowColor = Color.argb(90, 0, 0, 0)
         }
-        // 번호 01~30 (짙은 금)
-        cv.addView(label("%02d".format(index + 1), Style.jost(this, 300), 7f, Style.GILT, .2f, Gravity.START),
-            FrameLayout.LayoutParams(-2, -2).apply { leftMargin = dp(7f); topMargin = dp(7f) })
-        // 미니 아이콘 2×2 (20dp, 간격 5)
-        val ic = dp(20f); val g = dp(5f)
+        val k = (w / dpf(68f)).coerceIn(.8f, 1.3f)
+        // 번호 01~30 (잉크 70% — 샤넬팀 4차)
+        cv.addView(label("%02d".format(index + 1), Style.jost(this, 400), 8f, Style.ink(.7f), .15f, Gravity.START),
+            FrameLayout.LayoutParams(-2, -2).apply { leftMargin = dp(7f); topMargin = dp(6f) })
+        // 미니 아이콘 2×2
+        val ic = (dpf(20f) * k).toInt(); val g = (dpf(4f) * k).toInt()
         val left = (w - ic * 2 - g) / 2
-        repo.coverApps(id).forEachIndexed { k, a ->
+        val iconTop = if (h < dp(88f)) dp(16f) else dp(20f)
+        repo.coverApps(id).forEachIndexed { i, a ->
             val iv = ImageView(this).apply { setImageDrawable(iconOf(a)); styleIcon(this) }
             cv.addView(iv, FrameLayout.LayoutParams(ic, ic).apply {
-                leftMargin = left + (k % 2) * (ic + g); topMargin = dp(20f) + (k / 2) * (ic + g)
+                leftMargin = left + (i % 2) * (ic + g); topMargin = iconTop + (i / 2) * (ic + g)
             })
         }
         val gd = View(this).apply {
@@ -945,34 +970,15 @@ class MainActivity : ComponentActivity() {
         }
         cv.addView(gd, FrameLayout.LayoutParams(dp(6f), dp(6f), Gravity.END or Gravity.TOP).apply { topMargin = dp(6f); rightMargin = dp(6f) })
         gridDots[id] = gd
-        // 이름 위 짧은 선 + 이름 (카드 안에 인쇄)
-        cv.addView(View(this).apply { setBackgroundColor(Style.ink(.12f)) },
+        if (h >= dp(88f)) cv.addView(View(this).apply { setBackgroundColor(Style.ink(.12f)) },
             FrameLayout.LayoutParams(dp(28f), hair(.5f), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(26f) })
         val nm = shortName(repo.nameOf(id))
-        val t = label(nm, Style.kr(this, 300), 10f, Style.ink(.85f), 0f).apply {
+        val t = label(nm, Style.kr(this, 400), (if (nm.length <= 6) 11f else 10f) + look.nameDelta, look.nameColorOn(true, Style.ink(.9f)), -.02f).apply {
             maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
-            if (paint.measureText(nm) > w - dp(8f)) textSize = 8.5f
+            if (paint.measureText(nm) > w - dp(6f)) textSize = 9f + look.nameDelta
         }
-        cv.addView(t, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { leftMargin = dp(4f); rightMargin = dp(4f); bottomMargin = dp(9f) })
-        cv.setOnClickListener { showFolder(id) }
-        cv.setOnLongClickListener { folderMenu(cv, id); true }
-        // 앱을 끌어 이 폴더에 놓기 = 이동 (올려 두면 금 점선)
-        cv.setOnDragListener { _, e ->
-            when (e.action) {
-                DragEvent.ACTION_DRAG_STARTED -> true
-                DragEvent.ACTION_DRAG_ENTERED -> { cv.foreground = CardLine(fav, dashed = true); true }
-                DragEvent.ACTION_DRAG_EXITED -> { cv.foreground = CardLine(fav); true }
-                DragEvent.ACTION_DROP -> {
-                    val parts = e.clipData?.getItemAt(0)?.text?.toString()?.split("\n")
-                    val pkg = parts?.getOrNull(0)
-                    val src = parts?.getOrNull(1)?.takeIf { it.isNotEmpty() }
-                    if (pkg != null) { repo.move(pkg, src, id); grid.post { refreshGrid() } }
-                    true
-                }
-                else -> true
-            }
-        }
-        cv.contentDescription = "${repo.nameOf(id)} 폴더, 앱 ${list.size}개"
+        cv.addView(t, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { leftMargin = dp(3f); rightMargin = dp(3f); bottomMargin = dp(6f) })
+        bindFolder(cv, id) { on -> cv.foreground = CardLine(fav, dashed = on) }
         return cv
     }
 
@@ -997,10 +1003,10 @@ class MainActivity : ComponentActivity() {
     }
     /** 앱마다 아이콘을 따로 복사해 씀 — 같은 아이콘을 여러 칸이 나눠 쓰면 한 칸에 입힌 MONO·GILT 색이
      *  다른 칸에도 남아, COLOR로 돌아와도 폴더 표지 색이 안 바뀌던 문제 */
-    private fun iconOf(a: AppEntry): android.graphics.drawable.Drawable =
+    internal fun iconOf(a: AppEntry): android.graphics.drawable.Drawable =
         BitmapDrawable(resources, a.bmp).apply { isFilterBitmap = true }
 
-    private fun styleIcon(iv: ImageView) {
+    internal fun styleIcon(iv: ImageView) {
         when (repo.iconMode) {
             AppRepo.ICON_MONO -> { iv.colorFilter = monoFilter; iv.imageAlpha = 217 }
             AppRepo.ICON_GILT -> { iv.colorFilter = giltFilter; iv.imageAlpha = 255 }
@@ -1009,13 +1015,13 @@ class MainActivity : ComponentActivity() {
     }
 
     // ───────── ③ 카드 (폴더 열림) ─────────
-    private lateinit var closeBtn: TextView
+    internal lateinit var closeBtn: TextView
     private lateinit var cardEmpty: TextView
     private lateinit var pickBar: LinearLayout
     private var pickFolder: String? = null          // 표지 앱 고르기 중인 폴더
     private val pickSel = ArrayList<String>()
 
-    private lateinit var cardNum: TextView
+    internal lateinit var cardNum: TextView
 
     /** 열린 폴더 = 꺼내 든 편지 카드 (샤넬팀 B안): 8dp 안쪽 1.5dp 검은 테두리, 큰 금 번호, CLOSE 검정 채움 */
     private fun buildCard() {
@@ -1026,36 +1032,41 @@ class MainActivity : ComponentActivity() {
             visibility = View.GONE
             isClickable = true
         }
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(28f), dp(28f), dp(28f), dp(28f)) }
-        card.addView(col, FrameLayout.LayoutParams(-1, -2))
+        val cc = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(28f), dp(28f), dp(28f), dp(28f)) }
+        card.addView(cc, FrameLayout.LayoutParams(-1, -2))
         val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; isBaselineAligned = true }
         cardNum = label("04", Style.jost(this, 200), 44f, Style.GILT, 0f, Gravity.START)
         head.addView(cardNum, LinearLayout.LayoutParams(-2, -2).apply { rightMargin = dp(6f) })
         cardKicker = label("FOLDER", Style.jost(this, 400), 9f, Style.ink(.5f), .35f, Gravity.START)
         head.addView(cardKicker, LinearLayout.LayoutParams(-2, -2))
-        col.addView(head, LinearLayout.LayoutParams(-1, -2))
+        cc.addView(head, LinearLayout.LayoutParams(-1, -2))
         cardTitle = label("금융", Style.kr(this, 300), 24f, Style.INK, 0f, Gravity.START)
-        col.addView(cardTitle, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
-        col.addView(View(this).apply { setBackgroundColor(Style.ink(.15f)) }, LinearLayout.LayoutParams(-1, hair(.5f)).apply { topMargin = dp(14f) })
+        cc.addView(cardTitle, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
+        cardSub = label("", Fonts.serifI(this), 16f, Style.ink(.6f), 0f, Gravity.START).apply { visibility = View.GONE }
+        cc.addView(cardSub, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4f) })
+        cc.addView(View(this).apply { setBackgroundColor(Style.ink(.15f)) }, LinearLayout.LayoutParams(-1, hair(.5f)).apply { topMargin = dp(14f) })
         cardHint = label("", Style.kr(this, 300), 11f, Style.ink(.5f), 0f, Gravity.START)
-        col.addView(cardHint, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10f) })
+        cc.addView(cardHint, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10f) })
         cardApps = GridLayout(this).apply { columnCount = 4 }
         cardScroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(cardApps) }
-        col.addView(cardScroll, LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(18f) })
+        cc.addView(cardScroll, LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(18f) })
         cardEmpty = label("비어 있습니다 · 다른 폴더의 앱을 길게 눌러 끌어 오세요", Style.kr(this, 300), 12f, Style.ink(.45f), 0f, Gravity.START).apply { visibility = View.GONE }
-        col.addView(cardEmpty, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8f); bottomMargin = dp(8f) })
+        cc.addView(cardEmpty, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8f); bottomMargin = dp(8f) })
         closeBtn = label("CLOSE · 닫기", Style.jost(this, 400), 12f, Style.IVORY, .2f).apply {
             gravity = Gravity.CENTER
             setBackgroundColor(Style.INK)
             setOnClickListener { hideCard() }
         }
-        col.addView(closeBtn, LinearLayout.LayoutParams(-1, dp(44f)).apply { topMargin = dp(20f) })
+        // TRAIN 승차권: 닫기 위 절취선
+        stubPerf = View(this).apply { background = Perf(NAVY, dpf(3f), dpf(14f)); visibility = View.GONE }
+        cc.addView(stubPerf, LinearLayout.LayoutParams(-1, dp(10f)).apply { topMargin = dp(20f); leftMargin = -dp(28f); rightMargin = -dp(28f) })
+        cc.addView(closeBtn, LinearLayout.LayoutParams(-1, dp(44f)).apply { topMargin = dp(20f) })
         // 표지 앱 고르기: 취소 · 저장(검정 채움 + 금 안쪽 선)
         pickBar = buttonPair("취소", "저장", true, { pickFolder = null; cardFolder?.let { showFolder(it) } }, goldInner = true) {
             val f = pickFolder ?: return@buttonPair
             repo.setCover(f, pickSel.toList()); pickFolder = null; refreshGrid(); showFolder(f)
         }.apply { visibility = View.GONE }
-        col.addView(pickBar, LinearLayout.LayoutParams(-1, dp(44f)).apply { topMargin = dp(20f) })
+        cc.addView(pickBar, LinearLayout.LayoutParams(-1, dp(44f)).apply { topMargin = dp(20f) })
         // 카드 바깥(상자)을 누르면 카드가 닫힘 — 뒤는 #000 45%
         cardScrim = View(this).apply { setBackgroundColor(Color.argb(115, 0, 0, 0)); elevation = dpf(23f); visibility = View.GONE; setOnClickListener { hideCard() } }
         root.addView(cardScrim, FrameLayout.LayoutParams(-1, -1))
@@ -1109,13 +1120,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun showFolder(id: String) {
+    internal fun showFolder(id: String) {
+        // HOUR · CAPTION은 카드 대신 화면 전체로 엶
+        when (look.theme) {
+            Look.HOUR -> { hideCardOnly(); showHourOpen(id); return }
+            Look.CAPTION -> { hideCardOnly(); showCaptionOpen(id); return }
+        }
+        hideThemeOpen()
         val wasOpen = card.visibility == View.VISIBLE && cardFolder == id
         cardFolder = id
-        cardKicker.setTextColor(Style.ink(.5f))
-        cardNum.visibility = View.VISIBLE
-        cardNum.text = "%02d".format(repo.folders().indexOf(id) + 1)
-        cardKicker.text = "FOLDER"
+        skinCard(look.theme)
+        val no = repo.folders().indexOf(id) + 1
+        val n = repo.appsIn(id).size
+        cardNum.text = "%02d".format(no)
+        cardKicker.text = when (look.theme) { Look.LIBRARY -> "VOL. %02d".format(no); Look.TRAIN -> "PLATFORM %02d · $n APPS".format(no); else -> "FOLDER" }
+        cardSub.text = "$n apps"
         cardTitle.text = repo.nameOf(id)
         cardHint.text = "길게 눌러 메뉴 · 끌어서 다른 폴더로 옮기기"
         cardHint.visibility = if (repo.takeHint()) View.VISIBLE else View.GONE
@@ -1126,6 +1145,7 @@ class MainActivity : ComponentActivity() {
 
     /** 표지 앱 고르기 모드 */
     private fun startPick(id: String) {
+        hideThemeOpen(); skinCard(Look.MONSIEUR)
         pickFolder = id
         pickSel.clear(); pickSel.addAll(repo.customCover(id))
         cardFolder = id
@@ -1146,7 +1166,8 @@ class MainActivity : ComponentActivity() {
 
     private fun updatePickKicker() { cardKicker.text = "COVER · ${pickSel.size}/4" }
 
-    private fun showUnassigned() {
+    internal fun showUnassigned() {
+        hideThemeOpen(); skinCard(Look.MONSIEUR)
         cardFolder = "__unassigned"
         setPickUi(false)
         cardKicker.setTextColor(Style.ink(.5f))
@@ -1164,6 +1185,7 @@ class MainActivity : ComponentActivity() {
         refreshGrid()
         if (q.isBlank()) { if (cardFolder == "__search") hideCard(); return }
         searchList = repo.search(q)
+        hideThemeOpen(); skinCard(Look.MONSIEUR)
         cardFolder = "__search"
         setPickUi(false)
         cardKicker.setTextColor(Style.ink(.5f))
@@ -1188,16 +1210,30 @@ class MainActivity : ComponentActivity() {
         cardEmpty.visibility = if (list.isEmpty() && !f.startsWith("__")) View.VISIBLE else View.GONE
         val badges = BadgeService.active
         val src = if (f.startsWith("__")) null else f
-        list.forEach { a -> cardApps.addView(appCell(a, a.pkg in badges, src), GridLayout.LayoutParams().apply { width = dp(78f) }) }
+        val cw = dp(look.iconDp + 26f)
+        // LIBRARY 펼친 책: 2열 + 가운데 접힘 + 2열
+        val book = cardSkin == Look.LIBRARY
+        val cols = if (look.iconDp > 56f && !book) 3 else 4
+        cardApps.columnCount = cols
+        list.forEachIndexed { i, a -> cardApps.addView(appCell(a, a.pkg in badges, src), GridLayout.LayoutParams().apply {
+            width = if (book) dp(look.iconDp + 18f) else cw
+            if (book && i % 4 == 2) leftMargin = dp(36f)
+        }) }
     }
 
     /** 앱 한 칸: 누르면 실행 · 길게 누른 채 8dp 넘게 끌면 옮기기 · 길게 누르고 그냥 떼면 메뉴 (샤넬팀 7:0) */
     @SuppressLint("ClickableViewAccessibility")
-    private fun appCell(a: AppEntry, badge: Boolean, src: String?): View {
-        val cell = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; setPadding(0, dp(2f), 0, dp(16f)) }
+    internal fun appCell(a: AppEntry, badge: Boolean, src: String?, compact: Boolean = false, onDark: Boolean = false, row: Boolean = false): View {
+        // 아이콘 크기는 SETTINGS · DISPLAY (작게 44 · 기본 52 · 크게 60)
+        val icDp = when { row -> 40f; compact -> look.iconDp * 44f / 52f; else -> look.iconDp }
+        val ic = dp(icDp)
+        val cell = LinearLayout(this).apply {
+            if (row) { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; minimumHeight = dp(52f); background = UnderLine(Style.ivory(.1f), dpf(.5f), 0f) }
+            else { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; setPadding(0, dp(2f), 0, if (compact) 0 else dp(16f)) }
+        }
         val fr = FrameLayout(this)
         val iv = ImageView(this).apply { setImageDrawable(iconOf(a)); styleIcon(this) }
-        fr.addView(iv, FrameLayout.LayoutParams(dp(52f), dp(52f)))
+        fr.addView(iv, FrameLayout.LayoutParams(ic, ic))
         val cd = dot().apply { visibility = if (badge) View.VISIBLE else View.GONE }
         fr.addView(cd, FrameLayout.LayoutParams(dp(6f), dp(6f), Gravity.END or Gravity.TOP))
         cardDots.getOrPut(a.pkg) { ArrayList() }.add(cd)
@@ -1212,9 +1248,15 @@ class MainActivity : ComponentActivity() {
             }
             fr.addView(boxv, FrameLayout.LayoutParams(dp(18f), dp(18f), Gravity.END or Gravity.TOP).apply { topMargin = dp(2f); rightMargin = dp(2f) })
         }
-        cell.addView(fr, LinearLayout.LayoutParams(dp(52f), dp(52f)))
-        val t = label(a.label, Style.kr(this, 300), 11f, Style.ink(.8f), 0f).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
-        cell.addView(t, LinearLayout.LayoutParams(dp(72f), -2).apply { topMargin = dp(6f) })
+        cell.addView(fr, LinearLayout.LayoutParams(ic, ic))
+        val nameSp = (if (row) 13f else if (compact) 10f else 11f) + look.nameDelta
+        val nameCol = look.nameColorOn(!onDark, if (onDark) Style.ivory(.82f) else Style.ink(.8f))
+        val t = label(a.label, Style.kr(this, 300), nameSp, nameCol, 0f, if (row) Gravity.START or Gravity.CENTER_VERTICAL else Gravity.CENTER_HORIZONTAL).apply {
+            maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+            if (onDark && compact) setShadowLayer(dpf(2f), 0f, dpf(1f), Color.argb(200, 0, 0, 0))
+        }
+        if (row) cell.addView(t, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(12f) })
+        else cell.addView(t, LinearLayout.LayoutParams(if (compact) dp(64f) else maxOf(dp(72f), ic + dp(18f)), -2).apply { topMargin = dp(if (compact) 4f else 6f) })
         if (repo.isHidden(a.pkg)) cell.alpha = .5f   // 숨긴 앱은 검색에서 흐리게
 
         if (pf != null && src == pf) {
@@ -1289,14 +1331,18 @@ class MainActivity : ComponentActivity() {
 
     /** 앱이 많아 카드가 화면보다 길면, 카드를 화면 안에 맞추고 앱 목록만 스크롤 — '폴더 닫기'가 늘 보이게 */
     private fun fitCard() {
-        val top = sbTop + dp(64f)
-        // 검색 중에는 키보드와 검색창(44)·폴리오(44)·여백 위에서 끝나게 (샤넬팀 #5)
-        val avail = if (cardFolder == "__search") root.height - top - maxOf(navBot, imeBot) - dp(120f)
-                    else root.height - top - navBot - dp(24f)
-        (card.layoutParams as FrameLayout.LayoutParams).apply { topMargin = top; height = FrameLayout.LayoutParams.WRAP_CONTENT }
+        val minTop = sbTop + dp(64f)
+        // 엄지 자리: 테마별 높이에 놓고, 길면 위로 올림 (샤넬팀 4차)
+        val search = cardFolder == "__search"
+        val bottomGap = if (search) maxOf(navBot, imeBot) + dp(120f) else navBot + dp(24f)
+        (card.layoutParams as FrameLayout.LayoutParams).height = FrameLayout.LayoutParams.WRAP_CONTENT
         (cardScroll.layoutParams as LinearLayout.LayoutParams).apply { height = LinearLayout.LayoutParams.WRAP_CONTENT; weight = 0f }
         (card.getChildAt(0).layoutParams as FrameLayout.LayoutParams).height = FrameLayout.LayoutParams.WRAP_CONTENT
         card.measure(View.MeasureSpec.makeMeasureSpec(root.width - dp(32f), View.MeasureSpec.EXACTLY), View.MeasureSpec.UNSPECIFIED)
+        val want = if (search || cardFolder?.startsWith("__") == true) minTop else maxOf(minTop, cardTopFor(cardSkin))
+        val top = if (want + card.measuredHeight > root.height - bottomGap) maxOf(minTop, root.height - bottomGap - card.measuredHeight) else want
+        val avail = root.height - top - bottomGap
+        (card.layoutParams as FrameLayout.LayoutParams).topMargin = top
         if (card.measuredHeight > avail) {
             (card.layoutParams as FrameLayout.LayoutParams).height = avail
             (card.getChildAt(0).layoutParams as FrameLayout.LayoutParams).height = FrameLayout.LayoutParams.MATCH_PARENT
@@ -1315,8 +1361,12 @@ class MainActivity : ComponentActivity() {
         card.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f).setDuration(280).setInterpolator(EASE).start()
     }
 
-    private fun hideCard() {
+    /** 카드만 닫음 (테마 화면은 그대로) */
+    private fun hideCardOnly() { if (::card.isInitialized) { card.visibility = View.GONE; cardScrim.visibility = View.GONE } }
+
+    internal fun hideCard() {
         if (!::card.isInitialized) return
+        hideThemeOpen()
         val wasSearch = cardFolder == "__search"
         cardFolder = null
         if (wasSearch && ::search.isInitialized && !search.text.isNullOrEmpty()) search.setText("")
@@ -1332,7 +1382,7 @@ class MainActivity : ComponentActivity() {
         when {
             f == "__search" -> { searchList = repo.search(search.text?.toString() ?: ""); refreshCardApps(); fitCard() }
             f == "__unassigned" -> { refreshCardApps(); fitCard() }
-            repo.folders().contains(f) -> { cardTitle.text = repo.nameOf(f); refreshCardApps(); fitCard() }
+            repo.folders().contains(f) -> if (themeOpen != null) showFolder(f) else { cardTitle.text = repo.nameOf(f); refreshCardApps(); fitCard() }
             else -> hideCard()
         }
     }
@@ -1398,7 +1448,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /** 폴더 메뉴: 이름 바꾸기 · 표지 앱 고르기 · 표지 원래대로 · 원래 이름으로 · 폴더 삭제 */
-    private fun folderMenu(anchor: View, id: String) {
+    internal fun folderMenu(anchor: View, id: String) {
         val items = ArrayList<Pair<String, () -> Unit>>()
         items += item("폴더 이름 바꾸기") { renameSheet("RENAME", repo.nameOf(id), null) { repo.renameFolder(id, it); refreshAll() } }
         items += item("표지 앱 고르기") { startPick(id) }
@@ -1445,33 +1495,21 @@ class MainActivity : ComponentActivity() {
         hideKeyboard()
         openSheet { sh ->
             sheetKicker(sh, "SETTINGS")
-            fun line() = sh.addView(View(this).apply { setBackgroundColor(Style.ink(.1f)) }, LinearLayout.LayoutParams(-1, hair(.5f)))
+            val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            fun line() = list.addView(View(this).apply { setBackgroundColor(Style.ink(.1f)) }, LinearLayout.LayoutParams(-1, hair(.5f)))
             fun row(text: String, right: String?, enabled: Boolean, go: () -> Unit) {
-                val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; background = pressedBg() }
                 r.addView(label(text, Style.kr(this, 300), 14f, Style.INK, 0f, Gravity.START or Gravity.CENTER_VERTICAL), LinearLayout.LayoutParams(0, -2, 1f))
                 if (right != null) r.addView(label(right, Style.jost(this, 300), 13f, Style.ink(.55f), .1f, Gravity.END))
                 if (enabled) r.setOnClickListener { hideSettingsSheet(); go() } else r.alpha = .4f
-                sh.addView(r, LinearLayout.LayoutParams(-1, dp(56f)))
+                list.addView(r, LinearLayout.LayoutParams(-1, dp(56f)))
             }
             // 1. 아이콘 COLOR / MONO / GILT — 시트를 닫지 않고 바로 바뀜
-            val ir = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            ir.addView(label("아이콘", Style.kr(this, 300), 14f, Style.INK, 0f, Gravity.START or Gravity.CENTER_VERTICAL), LinearLayout.LayoutParams(0, -2, 1f))
-            val segs = ArrayList<TextView>()
-            fun paintSegs() = segs.forEachIndexed { i, s ->
-                val on = repo.iconMode == i
-                s.setTextColor(if (on) Style.IVORY else Style.INK)
-                s.background = GradientDrawable().apply { if (on) setColor(Style.INK) else setStroke(dp(1f), Style.ink(.3f)) }
-            }
-            listOf("COLOR", "MONO", "GILT").forEachIndexed { i, n ->
-                val s = label(n, Style.jost(this, 400), 10f, Style.INK, .2f).apply {
-                    gravity = Gravity.CENTER
-                    setOnClickListener { repo.iconMode = i; paintSegs(); refreshAll() }
-                }
-                segs += s
-                ir.addView(s, LinearLayout.LayoutParams(dp(64f), dp(32f)).apply { if (i > 0) leftMargin = dp(6f) })
-            }
-            paintSegs()
-            sh.addView(ir, LinearLayout.LayoutParams(-1, dp(56f))); line()
+            list.addView(segRow("아이콘", listOf("COLOR", "MONO", "GILT"), { repo.iconMode }) { repo.iconMode = it; refreshAll() }, LinearLayout.LayoutParams(-1, dp(56f))); line()
+            row("테마 · THE COLLECTION", Look.NAMES[look.theme], true) { showCollection() }; line()
+            row("보기 · DISPLAY", null, true) { displaySheet() }; line()
+            row("표지 사진 · THE CAPTION", if (look.photos.isEmpty()) "기본" else "${look.photos.size}장", true) { pickPhotos() }; line()
+            row("HA 연결 · 미디어", if (look.haToken.isBlank()) "연결 안 됨" else "토큰 있음", true) { tokenSheet() }; line()
             row("폴더 추가", null, repo.folderCount() < AppRepo.MAX_FOLDERS) {
                 // 저장을 눌러야 폴더가 생김 (취소하면 아무것도 안 생김)
                 renameSheet("NEW FOLDER", repo.newFolderName(), null, selectAll = true) { repo.addFolder(it); refreshAll() }
@@ -1482,8 +1520,130 @@ class MainActivity : ComponentActivity() {
             val dd = repo.deletedDefaults().size
             if (dd > 0) { row("기본 폴더 되살리기", "$dd", repo.folderCount() < AppRepo.MAX_FOLDERS) { repo.restoreDefaults(); refreshAll() }; line() }
             row("기본 홈 앱 바꾸기", null, true) { openSafely(Intent(Settings.ACTION_HOME_SETTINGS)) }; line()
-            row("알림 점 허용", null, true) { openSafely(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+            row("알림 점 · 미디어 허용", null, true) { openSafely(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+            val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(list) }
+            list.measure(View.MeasureSpec.makeMeasureSpec(root.width - dp(48f), View.MeasureSpec.EXACTLY), View.MeasureSpec.UNSPECIFIED)
+            sh.addView(sv, LinearLayout.LayoutParams(-1, minOf(list.measuredHeight, (root.height * .68f).toInt())))
         }
+    }
+
+    /** 이름 + 가로 칸 고르기 (시트를 닫지 않고 바로 바뀜) */
+    private fun segRow(title: String, opts: List<String>, get: () -> Int, set: (Int) -> Unit): LinearLayout {
+        val ir = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        ir.addView(label(title, Style.kr(this, 300), 14f, Style.INK, 0f, Gravity.START or Gravity.CENTER_VERTICAL), LinearLayout.LayoutParams(0, -2, 1f))
+        val segs = ArrayList<TextView>()
+        fun paint() = segs.forEachIndexed { i, s ->
+            val on = get() == i
+            s.setTextColor(if (on) Style.IVORY else Style.INK)
+            s.background = GradientDrawable().apply { if (on) setColor(Style.INK) else setStroke(dp(1f), Style.ink(.3f)) }
+        }
+        val latin = opts.all { it.all { c -> c.code < 128 } }
+        val w = if (opts.size > 3) 52f else 60f
+        opts.forEachIndexed { i, n ->
+            val s = label(n, if (latin) Style.jost(this, 400) else Style.kr(this, 400), if (latin) 10f else 11.5f, Style.INK, if (latin) .2f else 0f).apply {
+                gravity = Gravity.CENTER
+                setOnClickListener { set(i); paint() }
+            }
+            segs += s
+            ir.addView(s, LinearLayout.LayoutParams(dp(w), dp(32f)).apply { if (i > 0) leftMargin = dp(6f) })
+        }
+        paint()
+        return ir
+    }
+
+    /** 보기 · DISPLAY: 폴더 크기 · 앱 아이콘 크기 · 이름 크기 · 이름 색 */
+    private fun displaySheet() {
+        openSheet { sh ->
+            sheetKicker(sh, "DISPLAY")
+            fun line() = sh.addView(View(this).apply { setBackgroundColor(Style.ink(.1f)) }, LinearLayout.LayoutParams(-1, hair(.5f)))
+            val three = listOf("작게", "기본", "크게")
+            sh.addView(segRow("폴더 크기", three, { look.folderSize }) { look.folderSize = it; refreshAll() }, LinearLayout.LayoutParams(-1, dp(56f))); line()
+            sh.addView(segRow("앱 아이콘", three, { look.iconSize }) { look.iconSize = it; refreshAll() }, LinearLayout.LayoutParams(-1, dp(56f))); line()
+            sh.addView(segRow("이름 크기", three, { look.nameSize }) { look.nameSize = it; refreshAll() }, LinearLayout.LayoutParams(-1, dp(56f))); line()
+            sh.addView(segRow("이름 색", listOf("기본", "진하게", "금색", "옅게"), { look.nameColor }) { look.nameColor = it; refreshAll() }, LinearLayout.LayoutParams(-1, dp(56f)))
+            sh.addView(label("폴더 크기를 '크게'로 하면 30개가 한 화면을 조금 넘어 서랍이 스크롤됩니다.", Style.kr(this, 300), 12f, Style.ink(.5f), 0f, Gravity.START).apply { setLineSpacing(dpf(3f), 1f) },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12f) })
+        }
+    }
+
+    /** HA 연결: 장기 액세스 토큰을 한 번 넣어 둠 (HA 프로필 → 보안 → 장기 액세스 토큰) */
+    private fun tokenSheet() {
+        openSheet { sh ->
+            sheetKicker(sh, "HOME ASSISTANT")
+            sh.addView(label("HA 프로필 → 보안 → 장기 액세스 토큰에서 만든 토큰을 붙여 넣어 주십시오. 미디어 페이지의 Apple TV · 마란츠 · 스포티파이 보내기에 씁니다.",
+                Style.kr(this, 300), 13f, Style.ink(.75f), 0f, Gravity.START).apply { setLineSpacing(dpf(4f), 1f) }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16f) })
+            val et = EditText(this).apply {
+                setText(look.haToken); hint = "토큰"; setHintTextColor(Style.ink(.35f))
+                typeface = Fonts.mono(this@MainActivity); textSize = 12f; setTextColor(Style.INK)
+                setSingleLine(); background = null; setPadding(0, 0, 0, dp(6f))
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            }
+            val wrap = FrameLayout(this)
+            wrap.addView(et, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+            wrap.addView(View(this).apply { setBackgroundColor(Style.INK) }, FrameLayout.LayoutParams(-1, dp(1f), Gravity.BOTTOM))
+            sh.addView(wrap, LinearLayout.LayoutParams(-1, dp(44f)))
+            val msg = label("", Style.kr(this, 300), 12f, Style.ink(.6f), 0f, Gravity.START)
+            sh.addView(msg, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10f) })
+            sh.addView(buttonPair("취소", "연결 확인", true, { hideIme(et); hideSettingsSheet() }) {
+                val tk = et.text.toString().trim()
+                if (tk.isEmpty()) { look.haToken = ""; msg.text = "토큰을 지웠습니다"; media.rebuild(true); return@buttonPair }
+                msg.text = "확인 중…"
+                Ha.check(tk) { ok ->
+                    if (ok) { look.haToken = tk; msg.text = "연결됨 · 저장했습니다"; hideIme(et); root.postDelayed({ hideSettingsSheet() }, 700); media.rebuild(true) }
+                    else msg.text = "연결되지 않았습니다 · 토큰을 확인해 주십시오"
+                }
+            }, LinearLayout.LayoutParams(-1, dp(44f)).apply { topMargin = dp(20f) })
+        }
+    }
+
+    // ───────── THE CAPTION 사진 고르기 (최대 6장) ─────────
+    private val photoPicker = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNullOrEmpty()) return@registerForActivityResult
+        val keep = uris.take(Look.MAX_PHOTOS)
+        keep.forEach { u -> try { contentResolver.takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) {} }
+        // 예전 사진 권한은 놓아 줌
+        look.photos.forEach { old -> if (keep.none { it.toString() == old }) try { contentResolver.releasePersistableUriPermission(android.net.Uri.parse(old), Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) {} }
+        look.photos = keep.map { it.toString() }; look.photoIdx = 0
+        themeCover.loadPhoto()
+        if (look.theme == Look.CAPTION) themeBox()
+    }
+    internal fun pickPhotos() { try { photoPicker.launch(arrayOf("image/*")) } catch (_: Exception) {} }
+
+    /** 테마 바꾸기: 표지 · 미디어 · 서랍을 모두 다시 그림 */
+    internal fun applyTheme(t: Int) {
+        look.theme = t
+        hideCard()
+        themeCover.rebuild(true)
+        media.rebuild(true)
+        themeBox()
+        refreshGrid()
+        barsLight = null; updateBars()
+    }
+
+    // ───────── MediaHost ─────────
+    override fun sendSheet(sources: List<String>, current: String, onPick: (String) -> Unit) {
+        openSheet { sh ->
+            sheetKicker(sh, "SPOTIFY · 보낼 기기")
+            fun srow(text: String, sub: String?, on: Boolean, go: () -> Unit) {
+                val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; background = pressedBg() }
+                r.addView(label(text, Style.kr(this, 300), 14f, Style.INK, 0f, Gravity.START or Gravity.CENTER_VERTICAL), LinearLayout.LayoutParams(0, -2, 1f))
+                if (sub != null) r.addView(label(sub, Style.kr(this, 300), 11f, Style.ink(.55f), 0f, Gravity.END))
+                if (on) r.addView(View(this).apply { background = shape(Style.GOLD, oval = true) }, LinearLayout.LayoutParams(dp(8f), dp(8f)).apply { leftMargin = dp(10f) })
+                r.setOnClickListener { hideSettingsSheet(); go() }
+                sh.addView(View(this).apply { setBackgroundColor(Style.ink(.1f)) }, LinearLayout.LayoutParams(-1, hair(.5f)))
+                sh.addView(r, LinearLayout.LayoutParams(-1, dp(52f)))
+            }
+            srow("거실에서 듣기", "HA 스크립트", false) { onPick("__living") }
+            sources.forEach { s -> srow(s, null, s == current) { onPick(s) } }
+            if (sources.isEmpty()) sh.addView(label("스포티파이 기기 목록이 비어 있습니다 · 스포티파이 앱을 한 번 열어 두면 나타납니다",
+                Style.kr(this, 300), 12f, Style.ink(.5f), 0f, Gravity.START), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12f) })
+        }
+    }
+    override fun askToken() = tokenSheet()
+    override fun hasApp(pkg: String) = packageManager.getLaunchIntentForPackage(pkg) != null
+    override fun openApp(pkg: String): Boolean {
+        val i = packageManager.getLaunchIntentForPackage(pkg) ?: return false
+        openSafely(i); return true
     }
 
     /** 이름 바꾸기 시트 (200dp, 밑줄 입력칸 16sp, 취소 · 저장). 빈 칸으로 저장하면 원래 이름 */
@@ -1599,7 +1759,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun hideSettingsSheet(): Boolean {
+    internal fun hideSettingsSheet(): Boolean {
         val bg = sheetBg ?: return false
         root.removeView(bg); sheet?.let { root.removeView(it) }
         sheetBg = null; sheet = null
