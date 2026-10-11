@@ -601,7 +601,8 @@ class MainActivity : ComponentActivity(), MediaHost {
     }
     private fun showFail() {
         progressTrack.visibility = View.GONE
-        failBox.visibility = View.VISIBLE
+        // 연결 안 됨 상자는 MONSIEUR 표지에만 (다른 테마는 사진·종이 위에 떠 보여서 — 샤넬팀)
+        failBox.visibility = if (look.theme == Look.MONSIEUR) View.VISIBLE else View.GONE
         goPage(0, false)
     }
 
@@ -637,6 +638,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         if (light == barsLight) return
         barsLight = light
         androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = light
+        android.util.Log.d("MNS", "bars light=$light cur=$cur theme=${look.theme}")
     }
 
     private var pageAnim: ValueAnimator? = null
@@ -1074,12 +1076,12 @@ class MainActivity : ComponentActivity(), MediaHost {
         cardSub = label("", Fonts.serifI(this), 16f, Style.ink(.6f), 0f, Gravity.START).apply { visibility = View.GONE }
         cc.addView(cardSub, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4f) })
         cc.addView(View(this).apply { setBackgroundColor(Style.ink(.15f)) }, LinearLayout.LayoutParams(-1, hair(.5f)).apply { topMargin = dp(14f) })
-        cardHint = label("", Style.kr(this, 300), 11f, Style.ink(.5f), 0f, Gravity.START)
+        cardHint = label("", Style.kr(this, 300), 11f, Style.ink(.65f), 0f, Gravity.START)
         cc.addView(cardHint, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10f) })
         cardApps = GridLayout(this).apply { columnCount = 4 }
         cardScroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(cardApps) }
         cc.addView(cardScroll, LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(18f) })
-        cardEmpty = label("비어 있습니다 · 다른 폴더의 앱을 길게 눌러 끌어 오세요", Style.kr(this, 300), 12f, Style.ink(.45f), 0f, Gravity.START).apply { visibility = View.GONE }
+        cardEmpty = label("비어 있습니다 · 다른 폴더의 앱을 길게 눌러 끌어 오세요", Style.kr(this, 300), 12f, Style.ink(.65f), 0f, Gravity.START).apply { visibility = View.GONE }
         cc.addView(cardEmpty, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8f); bottomMargin = dp(8f) })
         closeBtn = label("CLOSE · 닫기", Style.jost(this, 400), 12f, Style.IVORY, .2f).apply {
             gravity = Gravity.CENTER
@@ -1153,6 +1155,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         // HOUR · CAPTION은 카드 대신 화면 전체로 엶
         when (look.theme) {
             Look.HOUR -> { hideCardOnly(); showHourOpen(id); return }
+            Look.LIBRARY -> { hideCardOnly(); showLibraryOpen(id); return }
             Look.CAPTION -> { hideCardOnly(); showCaptionOpen(id); return }
         }
         hideThemeOpen()
@@ -1529,7 +1532,10 @@ class MainActivity : ComponentActivity(), MediaHost {
             fun row(text: String, right: String?, enabled: Boolean, go: () -> Unit) {
                 val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; background = pressedBg() }
                 r.addView(label(text, Style.kr(this, 300), 14f, Style.INK, 0f, Gravity.START or Gravity.CENTER_VERTICAL), LinearLayout.LayoutParams(0, -2, 1f))
-                if (right != null) r.addView(label(right, Style.jost(this, 300), 13f, Style.ink(.55f), .1f, Gravity.END))
+                if (right != null) {
+                    val latin = right.all { it.code < 128 }
+                    r.addView(label(right, if (latin) Style.jost(this, 300) else Style.kr(this, 300), 13f, Style.ink(.55f), if (latin) .1f else 0f, Gravity.END))
+                }
                 if (enabled) r.setOnClickListener { hideSettingsSheet(); go() } else r.alpha = .4f
                 list.addView(r, LinearLayout.LayoutParams(-1, dp(56f)))
             }
@@ -1590,7 +1596,7 @@ class MainActivity : ComponentActivity(), MediaHost {
             sh.addView(segRow("앱 아이콘", three, { look.iconSize }) { look.iconSize = it; refreshAll() }, LinearLayout.LayoutParams(-1, dp(56f))); line()
             sh.addView(segRow("이름 크기", three, { look.nameSize }) { look.nameSize = it; refreshAll() }, LinearLayout.LayoutParams(-1, dp(56f))); line()
             sh.addView(segRow("이름 색", listOf("기본", "진하게", "금색", "옅게"), { look.nameColor }) { look.nameColor = it; refreshAll() }, LinearLayout.LayoutParams(-1, dp(56f)))
-            sh.addView(label("폴더 크기를 '크게'로 하면 30개가 한 화면을 조금 넘어 서랍이 스크롤됩니다.", Style.kr(this, 300), 12f, Style.ink(.5f), 0f, Gravity.START).apply { setLineSpacing(dpf(3f), 1f) },
+            sh.addView(label("'크게'는 폴더 30개가 한 화면에 들어가는 가장 큰 크기입니다.", Style.kr(this, 300), 12f, Style.ink(.5f), 0f, Gravity.START).apply { setLineSpacing(dpf(3f), 1f) },
                 LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12f) })
         }
     }
@@ -1671,6 +1677,7 @@ class MainActivity : ComponentActivity(), MediaHost {
     }
     override fun askToken() = tokenSheet()
     override fun photo() = themeCover.photoDrawable()
+    override fun openNotifAccess() = openSafely(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
     override fun hasApp(pkg: String) = packageManager.getLaunchIntentForPackage(pkg) != null
     override fun openApp(pkg: String): Boolean {
         val i = packageManager.getLaunchIntentForPackage(pkg) ?: return false

@@ -34,6 +34,7 @@ interface MediaHost {
     fun askToken()
     fun photo(): android.graphics.drawable.Drawable
     fun openApp(pkg: String): Boolean
+    fun openNotifAccess()
     fun hasApp(pkg: String): Boolean
 }
 
@@ -204,16 +205,19 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
 
     private fun bind() {
         if (theme < 0) return
+        permOk = androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+        fillEmpty()
         val now = hasNow
         nowViews.forEach { it.visibility = if (now) View.VISIBLE else View.INVISIBLE }
         emptyViews.forEach { it.visibility = if (now) View.GONE else View.VISIBLE }
         emptyBox?.visibility = if (now) View.GONE else View.VISIBLE
-        if (!now) { stopAnims(); return }
+        if (!now) { stopAnims(); art?.bmp = null; if (theme == Look.TRAIN) art?.placeholder = 1; return }
+        art?.placeholder = 0
         val t = meta(MediaMetadata.METADATA_KEY_TITLE)
         val ar = meta(MediaMetadata.METADATA_KEY_ARTIST).ifEmpty { meta(MediaMetadata.METADATA_KEY_ALBUM_ARTIST) }
         val al = meta(MediaMetadata.METADATA_KEY_ALBUM)
         val app = appName()
-        art?.bmp = artBmp(); atvArt?.let { }
+        art?.bmp = artBmp()
         val outN = outputName()
         when (theme) {
             Look.LIBRARY -> {
@@ -416,13 +420,33 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     private fun pollLater() { removeCallbacks(haLoop); postDelayed(haLoop, 900) }
 
     /** 재생 없음: 스포티파이·지니 열기 (설치된 것만) */
-    private fun emptyButtons(row: LinearLayout, make: (String) -> TextView) {
+    private var emptyRow: LinearLayout? = null
+    private var emptyMake: ((String) -> TextView)? = null
+    private var emptyMsg: TextView? = null
+    private var emptyMsgOk = ""
+    private var emptyState = -1
+    private fun emptyButtons(row: LinearLayout, make: (String) -> TextView) { emptyRow = row; emptyMake = make; emptyState = -1 }
+    /** 재생 없음: 알림 접근이 없으면 '허용' 버튼, 있으면 스포티파이·지니 열기 */
+    private fun fillEmpty() {
+        val row = emptyRow ?: return; val make = emptyMake ?: return
+        val st = if (permOk) 1 else 0
+        if (st == emptyState) return
+        emptyState = st
+        row.removeAllViews()
+        if (!permOk) {
+            emptyMsg?.text = "알림 접근을 허용하면 이 폰에서 재생 중인 음악이 여기 놓입니다."
+            val b = make(if (theme == Look.HOUR || theme == Look.TRAIN) "ALLOW · 알림 접근" else if (theme == Look.CAPTION) "알림 접근 허용 →" else "알림 접근 허용")
+            tap(b) { host.openNotifAccess() }
+            row.addView(b, LinearLayout.LayoutParams(-2, -1))
+            return
+        }
+        emptyMsg?.text = emptyMsgOk
         listOf(SPOTIFY_PKG to (if (theme == Look.HOUR || theme == Look.TRAIN) "SPOTIFY" else if (theme == Look.CAPTION) "스포티파이 열기 →" else "Spotify 열기"),
                GENIE_PKG to (if (theme == Look.HOUR || theme == Look.TRAIN) "GENIE" else if (theme == Look.CAPTION) "지니 열기 →" else "genie 열기")).forEach { (pkg, lbl) ->
             if (!host.hasApp(pkg)) return@forEach
             val b = make(lbl)
             tap(b) { host.openApp(pkg) }
-            row.addView(b, LinearLayout.LayoutParams(-2, -1).apply { if (row.childCount > 0) leftMargin = context.dp(10f) })
+            row.addView(b, LinearLayout.LayoutParams(-2, -1).apply { if (row.childCount > 0) leftMargin = context.dp(12f) })
         }
     }
     private fun quietButtons(row: LinearLayout, make: (String) -> TextView) {
@@ -524,8 +548,8 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         CL.addLR(q, 16f, 16f, 54f); quietBox = q
         val e = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; elevation = L.zf(14f) }
         e.addView(L.t("LA POCHETTE", Style.jost(context, 400), 10f, Style.GILT, .3f, Gravity.CENTER))
-        e.addView(L.t(if (permOk) "상자가 비어 있습니다" else "알림 접근을 허용해 주십시오", Style.kr(context, 400), 22f, Style.INK, 0f, Gravity.CENTER), LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(10f) })
-        e.addView(L.t("음악을 틀면 레코드가 여기 놓입니다.", Style.kr(context, 300), 13f, Style.ink(.7f), 0f, Gravity.CENTER), LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(8f) })
+        e.addView(L.t("상자가 비어 있습니다", Style.kr(context, 400), 22f, Style.INK, 0f, Gravity.CENTER), LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(10f) })
+        e.addView(L.t("음악을 틀면 레코드가 여기 놓입니다.", Style.kr(context, 300), 13f, Style.ink(.7f), 0f, Gravity.CENTER).also { emptyMsg = it; emptyMsgOk = "음악을 틀면 레코드가 여기 놓입니다." }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(8f) })
         val eb = hRow(); emptyButtons(eb) { pad(L.t(it, Style.kr(context, 400), 12.5f, Style.IVORY), 16f).apply { setBackgroundColor(Style.INK) } }
         e.addView(eb, LinearLayout.LayoutParams(-2, L.z(44f)).apply { topMargin = L.z(18f) })
         L.addLR(e, 28f, 28f, 380f); emptyBox = e
@@ -588,7 +612,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         H.addLR(q, 0f, 0f, 30f); quietBox = q
         val e = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         e.addView(L.t("Nothing on the programme.", Fonts.serif(context), 32f, Style.INK, 0f, Gravity.CENTER))
-        e.addView(L.t(if (permOk) "음악을 틀면 이 쪽에 적힙니다." else "알림 접근을 허용해 주십시오.", Style.kr(context, 300), 13f, Style.ink(.7f), 0f, Gravity.CENTER), LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(10f) })
+        e.addView(L.t("음악을 틀면 이 쪽에 적힙니다.", Style.kr(context, 300), 13f, Style.ink(.7f), 0f, Gravity.CENTER).also { emptyMsg = it; emptyMsgOk = "음악을 틀면 이 쪽에 적힙니다." }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(10f) })
         val eb = hRow(); emptyButtons(eb) { pad(L.t(it, Style.kr(context, 400), 12.5f, Style.INK), 16f).apply { background = shape(stroke = Style.ink(.6f), strokePx = L.z(1f)) } }
         e.addView(eb, LinearLayout.LayoutParams(-2, L.z(44f)).apply { topMargin = L.z(18f) })
         L.addLR(e, 28f, 28f, 220f); emptyBox = e
@@ -653,7 +677,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         val e = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         e.addView(L.t("CHRONOGRAPHE", Style.jost(context, 400), 10f, GOLD_LT, .3f, Gravity.CENTER))
         e.addView(L.t("0:00", Style.jost(context, 200), 56f, Style.IVORY, 0f, Gravity.CENTER), LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(8f) })
-        e.addView(L.t(if (permOk) "재생을 시작하면 바늘이 돕니다." else "알림 접근을 허용해 주십시오.", Style.kr(context, 300), 13f, Style.ivory(.75f), 0f, Gravity.CENTER), LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(8f) })
+        e.addView(L.t("재생을 시작하면 바늘이 돕니다.", Style.kr(context, 300), 13f, Style.ivory(.75f), 0f, Gravity.CENTER).also { emptyMsg = it; emptyMsgOk = "재생을 시작하면 바늘이 돕니다." }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(8f) })
         val eb = hRow(); emptyButtons(eb) { pad(L.t(it, Style.jost(context, 400), 12.5f, GOLD_LT, .2f), 18f).apply { background = shape(stroke = tint(.6f, GOLD_LT), strokePx = L.z(1f)) } }
         e.addView(eb, LinearLayout.LayoutParams(-2, L.z(44f)).apply { topMargin = L.z(18f) })
         L.addLR(e, 28f, 28f, 420f); emptyBox = e
@@ -698,7 +722,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         out = L.t("", Fonts.mono(context), 11f, Style.ivory(.75f), .12f, Gravity.CENTER).also { L.add(tap(it) { doOutput() }, 40f, 624f, 220f, 40f) }
         val send = L.t("보내기 ›", Style.kr(context, 400), 11f, GOLD_LT, .1f, Gravity.CENTER).apply { background = shape(stroke = tint(.6f, GOLD_LT), strokePx = L.z(1f)) }
         L.add(tap(send) { doSend() }, 270f, 624f, 100f, 40f)
-        nowViews += listOf(send, win, row, flapNote!!, sub!!, t0!!, t1!!, rp, prev, pl, next, out!!)
+        nowViews += listOf(send, row, flapNote!!, sub!!, t0!!, t1!!, rp, prev, pl, next, out!!)
         // 연결편 (CORRESPONDANCES)
         val cs = FrameLayout(context); L.addLR(cs, 32f, 32f, 676f, 170f)
         val C = Lay(context, cs, L.w - L.x(64f), L.z(170f), 348f, 170f)
@@ -728,10 +752,10 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         val e = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         e.addView(L.t("DÉPARTS", Fonts.mono(context), 10f, GOLD_LT, .3f, Gravity.CENTER))
         e.addView(L.t("AUCUN DÉPART", Fonts.mono(context), 20f, Style.IVORY, .2f, Gravity.CENTER), LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(10f) })
-        e.addView(L.t(if (permOk) "음악을 틀면 열차가 출발합니다." else "알림 접근을 허용해 주십시오.", Style.kr(context, 300), 13f, Style.ivory(.75f), 0f, Gravity.CENTER), LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(8f) })
+        e.addView(L.t("음악을 틀면 열차가 출발합니다.", Style.kr(context, 300), 13f, Style.ivory(.75f), 0f, Gravity.CENTER).also { emptyMsg = it; emptyMsgOk = "음악을 틀면 열차가 출발합니다." }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(8f) })
         val eb = hRow(); emptyButtons(eb) { pad(L.t(it, Fonts.mono(context), 12f, 0xFF2A1F0C.toInt(), .15f), 18f).apply { background = Pic(brassBig, Pic.FIT) } }
         e.addView(eb, LinearLayout.LayoutParams(-2, L.z(48f)).apply { topMargin = L.z(18f) })
-        L.addLR(e, 28f, 28f, 390f); emptyBox = e
+        L.addLR(e, 28f, 28f, 410f); emptyBox = e
     }
 
     // ═════════ ⑤ THE CAPTION — LA LÉGENDE ═════════
@@ -785,7 +809,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         val e = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         e.addView(L.t("NOW, ON THIS PHONE —", Style.jost(context, 400), 10f, Style.ivory(.85f), .3f))
         e.addView(L.t("Silence.", Style.jost(context, 300), 30f, Style.IVORY), LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(10f) })
-        e.addView(L.t(if (permOk) "음악을 틀면 이 사진이 앨범이 됩니다." else "알림 접근을 허용해 주십시오.", Style.kr(context, 300), 13f, Style.ivory(.75f)), LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(8f) })
+        e.addView(L.t("음악을 틀면 이 사진이 앨범이 됩니다.", Style.kr(context, 300), 13f, Style.ivory(.75f)).also { emptyMsg = it; emptyMsgOk = "음악을 틀면 이 사진이 앨범이 됩니다." }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(8f) })
         val eb = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
         emptyButtons(eb) { pad(L.t(it, Style.kr(context, 400), 12.5f, Style.IVORY), 2f).apply { background = UnderLine(Style.ivory(.6f), L.zf(1f), L.zf(8f)) } }
         e.addView(eb, LinearLayout.LayoutParams(-2, L.z(44f)).apply { topMargin = L.z(14f) })

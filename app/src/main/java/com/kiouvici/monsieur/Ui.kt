@@ -157,7 +157,8 @@ fun shape(fill: Int = Color.TRANSPARENT, stroke: Int = Color.TRANSPARENT, stroke
 class ArtView(ctx: Context, private val circle: Boolean = false, private val ring: Int = 0, private val ringPx: Float = 0f) : View(ctx) {
     var bmp: Bitmap? = null
         set(v) { field = v; invalidate() }
-    var placeholder = 0   // 0 짙은 남색 그라데이션
+    var placeholder = 0   // 0 짙은 남색 그라데이션 · 1 밤 객실 창 (빈 남색)
+        set(v) { field = v; invalidate() }
     private val p = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val rp = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     override fun onDraw(c: Canvas) {
@@ -168,6 +169,9 @@ class ArtView(ctx: Context, private val circle: Boolean = false, private val rin
         if (b != null) {
             val k = maxOf(w / b.width, h / b.height); val bw = b.width * k; val bh = b.height * k
             c.drawBitmap(b, null, RectF((w - bw) / 2, (h - bh) / 2, (w + bw) / 2, (h + bh) / 2), p)
+        } else if (placeholder == 1) {
+            p.shader = LinearGradient(0f, 0f, 0f, h, 0xFF0B1830.toInt(), 0xFF1B2C4A.toInt(), Shader.TileMode.CLAMP)
+            c.drawRect(0f, 0f, w, h, p); p.shader = null
         } else {
             p.shader = LinearGradient(0f, 0f, w * .4f, h, intArrayOf(0xFF3A4654.toInt(), 0xFF1C2631.toInt(), 0xFF0E141B.toInt()), floatArrayOf(0f, .55f, 1f), Shader.TileMode.CLAMP)
             c.drawRect(0f, 0f, w, h, p); p.shader = null

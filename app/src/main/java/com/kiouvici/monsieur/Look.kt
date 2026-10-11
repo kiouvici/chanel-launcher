@@ -41,7 +41,7 @@ class Look(ctx: Context) {
         get() = p.getInt("nameColor", 0)
         set(v) { p.edit().putInt("nameColor", v).apply() }
 
-    val folderScale get() = floatArrayOf(.92f, 1f, 1.08f)[folderSize.coerceIn(0, 2)]
+    val folderScale get() = floatArrayOf(.9f, 1f, 1.06f)[folderSize.coerceIn(0, 2)]   // 크게도 한 화면을 넘지 않게 (서랍에서 맞춤)
     val iconDp get() = floatArrayOf(44f, 52f, 60f)[iconSize.coerceIn(0, 2)]
     val nameDelta get() = floatArrayOf(-1f, 0f, 1.5f)[nameSize.coerceIn(0, 2)]
 

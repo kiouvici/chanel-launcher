@@ -223,7 +223,8 @@ internal fun MainActivity.buildStage() {
             val colW = ((W - gap * 4) / 5f * minOf(1f, k)).roundToInt()
             val rowGap = dp(8f)
             val fitH = ((H - dp(8f) - rowGap * (rows - 1).coerceAtLeast(0)) / rows.coerceAtLeast(1).toFloat())
-            val cardH = (minOf(fitH * maxOf(1f, k), colW * 1.25f) * (if (k < 1f) k else 1f)).roundToInt().coerceAtLeast(dp(56f))
+            // 크게(1.06)여도 30개가 한 화면을 넘지 않게 — 기본이 이미 가득이면 같음
+            val cardH = (minOf(fitH, colW * 1.25f * maxOf(1f, k)) * (if (k < 1f) k else 1f)).roundToInt().coerceAtLeast(dp(56f))
             val left0 = (W - (colW * 5 + gap * 4)) / 2
             folders.forEachIndexed { i, id ->
                 val inF = repo.appsIn(id)
@@ -287,7 +288,7 @@ private fun MainActivity.bookView(i: Int, stack: Int, id: String, nm: String, fa
     }
     v.addView(tv, FrameLayout.LayoutParams(-1, -1).apply { leftMargin = dp(if (badge) 24f else 16f); rightMargin = dp(24f) })
     tv.gravity = Gravity.CENTER
-    v.addView(txt("%02d".format(i + 1), Style.jost(this, 400), 9f, if (dark) GOLD_LT else 0xFF7A5A22.toInt(), 0f),
+    v.addView(txt("%02d".format(i + 1), Style.jost(this, 400), 9f, if (dark) GOLD_LT else if (bi == 3) 0xFF3A2412.toInt() else 0xFF7A5A22.toInt(), 0f),
         FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.CENTER_VERTICAL).apply { rightMargin = dp(9f) })
     if (fav) v.addView(View(this).apply { setBackgroundColor(GOLD_LT) }, FrameLayout.LayoutParams(-1, hair(1f), Gravity.BOTTOM).apply { leftMargin = dp(24f); rightMargin = dp(24f); bottomMargin = dp(7f) })
     val d = View(this).apply { background = shape(Style.ROUGE, oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
@@ -363,7 +364,7 @@ private fun MainActivity.boardRow(i: Int, id: String, nm: String, fav: Boolean, 
         background = FlapBg(dpf(1f)); setPadding(dp(8f), 0, dp(4f), 0); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
     }
     inner.addView(nmv, LinearLayout.LayoutParams(0, ph, 1f).apply { leftMargin = dp(4f) })
-    inner.addView(txt("%02d".format(count), Fonts.mono(this), 9f, Style.ivory(.65f), 0f, Gravity.END or Gravity.CENTER_VERTICAL), LinearLayout.LayoutParams(dp(22f), ph).apply { leftMargin = dp(4f) })
+    inner.addView(txt(if (count == 0) "—" else "%02d".format(count), Fonts.mono(this), 9f, Style.ivory(.65f), 0f, Gravity.END or Gravity.CENTER_VERTICAL), LinearLayout.LayoutParams(dp(22f), ph).apply { leftMargin = dp(4f) })
     r.addView(inner, FrameLayout.LayoutParams(-1, -1).apply { bottomMargin = dp(4f) })
     val d = View(this).apply { background = shape(Style.ROUGE, oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
     r.addView(d, FrameLayout.LayoutParams(dp(6f), dp(6f), Gravity.END or Gravity.TOP).apply { rightMargin = dp(24f); topMargin = dp(3f) })
@@ -517,7 +518,7 @@ internal fun MainActivity.showHourOpen(id: String, page: Int = 0) {
     val ct = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
     ct.addView(txt("FOLDER %02d".format(repo.folders().indexOf(id) + 1), Style.jost(this, 400), 8f, 0xFFC9A86A.toInt(), .3f, Gravity.CENTER))
     ct.addView(txt(repo.nameOf(id), Style.kr(this, 300), 18f, Style.IVORY, 0f, Gravity.CENTER).apply { maxLines = 1 }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(2f) })
-    ct.addView(txt(if (pages > 1) "${list.size} · 다음 장 ›" else "${list.size}", Style.kr(this, 300), 9f, Style.ivory(.6f), 0f, Gravity.CENTER), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(2f) })
+    ct.addView(txt(if (pages > 1) "${list.size} · 다음 장 ›" else if (list.isEmpty()) "0 · 비어 있습니다" else "${list.size}", Style.kr(this, 300), 9f, Style.ivory(.6f), 0f, Gravity.CENTER), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(2f) })
     if (pages > 1) ct.setOnClickListener { showHourOpen(id, (pg + 1) % pages) }
     val cs = L.z(110f)
     layer.addView(ct, FrameLayout.LayoutParams(cs, cs).apply { leftMargin = (cx - cs / 2).roundToInt(); topMargin = (cy - cs / 2).roundToInt() })
@@ -542,8 +543,9 @@ internal fun MainActivity.showCaptionOpen(id: String) {
     val L = Lay(this, layer, root.width, root.height)
     L.add(txt("THE CAPTION · %02d".format(repo.folders().indexOf(id) + 1), Style.jost(this, 400), 10f, Style.ivory(.75f), .4f), 28f, 226f)
     L.add(txt(repo.nameOf(id), Style.kr(this, 300), 34f, Style.IVORY), 28f, 246f)
-    val close = txt("닫기 ×", Style.kr(this, 400), 13f, Style.IVORY, 0f, Gravity.CENTER).apply { background = UnderLine(Style.ivory(.6f), dpf(1f), dpf(6f)); setOnClickListener { hideCard() } }
-    L.add(close, 316f, 252f, 72f, 44f)
+    // 닫기: 아래 엄지 자리 (예전 오른쪽 위 작은 글자 — 샤넬팀)
+    val close = txt("닫기", Style.kr(this, 400), 14f, Style.IVORY, 0f, Gravity.CENTER).apply { background = UnderLine(Style.ivory(.6f), dpf(1f), dpf(150f)); setOnClickListener { hideCard() } }
+    layer.addView(close, FrameLayout.LayoutParams(-1, dp(44f), Gravity.BOTTOM).apply { leftMargin = L.x(26f); rightMargin = L.x(26f); bottomMargin = navBot + dp(20f) })
     val grid = GridLayout(this).apply { columnCount = 2 }
     val list = repo.appsIn(id)
     val cw = (root.width - L.x(56f) - dp(16f)) / 2
@@ -551,10 +553,60 @@ internal fun MainActivity.showCaptionOpen(id: String) {
         grid.addView(appCell(a, a.pkg in BadgeService.active, id, row = true, onDark = true), GridLayout.LayoutParams().apply { width = cw; if (i % 2 == 1) leftMargin = dp(16f) })
     }
     val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; addView(grid) }
-    layer.addView(sv, FrameLayout.LayoutParams(-1, -1).apply { leftMargin = L.x(28f); rightMargin = L.x(28f); topMargin = L.y(304f); bottomMargin = navBot + dp(16f) })
+    layer.addView(sv, FrameLayout.LayoutParams(-1, -1).apply { leftMargin = L.x(28f); rightMargin = L.x(28f); topMargin = L.y(304f); bottomMargin = navBot + dp(76f) })
     root.addView(layer, FrameLayout.LayoutParams(-1, -1))
     themeOpen = layer
     if (!reduceMotion) { layer.alpha = 0f; layer.animate().alpha(1f).setDuration(220).start() }
+}
+
+/** ② LIBRARY 열린 폴더: 펼친 책 두 쪽 — 왼쪽 VOL·제목·앱 수 + 앱 2×2, 오른쪽 앱 3열 + CLOSE (샤넬팀) */
+internal fun MainActivity.showLibraryOpen(id: String) {
+    hideThemeOpen()
+    cardFolder = id
+    val list = repo.appsIn(id)
+    val layer = FrameLayout(this).apply { elevation = dpf(24f); isClickable = true }
+    layer.addView(View(this).apply { setBackgroundColor(Color.argb(115, 0, 0, 0)); setOnClickListener { hideCard() } }, FrameLayout.LayoutParams(-1, -1))
+    val bookW = root.width - dp(32f)
+    val pageW = bookW / 2
+    val book = FrameLayout(this).apply { background = BookSpread(this@showLibraryOpen); elevation = dpf(12f); isClickable = true }
+    val left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18f), dp(26f), dp(16f), dp(20f)) }
+    val no = repo.folders().indexOf(id) + 1
+    left.addView(txt("VOL. %02d".format(no), Style.jost(this, 400), 9f, Style.ink(.55f), .35f))
+    left.addView(txt(repo.nameOf(id), Style.kr(this, 300), 28f, Style.INK).apply { maxLines = 2 }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12f) })
+    val cnt = android.text.SpannableStringBuilder()
+    cnt.append("${list.size}", android.text.style.TypefaceSpan(Style.jost(this, 300)), 0)
+    cnt.append(if (list.size == 1) " app" else " apps")
+    left.addView(txt(cnt, Fonts.serifI(this), 16f, Style.ink(.65f)), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4f) })
+    val lg = GridLayout(this).apply { columnCount = 2 }
+    val cw = (pageW - dp(34f)) / 2
+    list.take(4).forEach { a -> lg.addView(appCell(a, a.pkg in BadgeService.active, id), GridLayout.LayoutParams().apply { width = cw }) }
+    left.addView(lg, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(18f) })
+    book.addView(left, FrameLayout.LayoutParams(pageW, -1))
+    val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14f), dp(26f), dp(16f), dp(20f)) }
+    val rg = GridLayout(this).apply { columnCount = 3 }
+    val rw = (pageW - dp(30f)) / 3
+    list.drop(4).forEach { a -> rg.addView(appCell(a, a.pkg in BadgeService.active, id), GridLayout.LayoutParams().apply { width = rw }) }
+    val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; addView(rg) }
+    right.addView(sv, LinearLayout.LayoutParams(-1, 0, 1f))
+    if (list.isEmpty()) right.addView(txt("비어 있습니다 · 다른 폴더의 앱을 길게 눌러 끌어 오세요", Style.kr(this, 300), 12f, Style.ink(.65f)).apply { setLineSpacing(dpf(3f), 1f) },
+        LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12f) })
+    val close = txt("CLOSE · 닫기", Style.jost(this, 400), 11f, Style.INK, .2f, Gravity.CENTER).apply {
+        background = shape(stroke = Style.INK, strokePx = dp(1f)); setOnClickListener { hideCard() }
+    }
+    right.addView(close, LinearLayout.LayoutParams(dp(160f).coerceAtMost(pageW - dp(30f)), dp(44f)).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(12f) })
+    book.addView(right, FrameLayout.LayoutParams(pageW, -1, Gravity.END))
+    // 높이: 최소 420, 앱이 많으면 화면 안에서 오른쪽 쪽만 스크롤
+    val rows = (maxOf(0, list.size - 4) + 2) / 3
+    val cellH = dp(look.iconDp + 40f)
+    val want = maxOf(dp(420f), dp(26f + 20f + 56f + 12f) + rows * cellH)
+    val top = cardTopFor(Look.LIBRARY)
+    val maxH = root.height - navBot - dp(24f) - (sbTop + dp(64f))
+    val h = minOf(want, maxH)
+    val y = minOf(top, root.height - navBot - dp(24f) - h)
+    layer.addView(book, FrameLayout.LayoutParams(bookW, h).apply { leftMargin = dp(16f); topMargin = y })
+    root.addView(layer, FrameLayout.LayoutParams(-1, -1))
+    themeOpen = layer
+    if (!reduceMotion) { book.alpha = 0f; book.translationY = dpf(30f); book.animate().alpha(1f).translationY(0f).setDuration(260).setInterpolator(MainActivity.EASE).start() }
 }
 
 internal fun MainActivity.hideThemeOpen(): Boolean {
