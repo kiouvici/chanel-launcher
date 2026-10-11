@@ -137,10 +137,12 @@ class MainActivity : ComponentActivity() {
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { _, ins ->
             val sb = ins.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
             val ime = ins.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime())
+            val barsChanged = sb.top != sbTop || sb.bottom != navBot
             sbTop = sb.top; navBot = sb.bottom
             loginLayer?.setPadding(0, sbTop, 0, maxOf(navBot, ime.bottom))
             if (::box.isInitialized) box.setPadding(0, 0, 0, maxOf(navBot, ime.bottom))
-            root.post { applyInsets() }
+            // 키보드만 오르내릴 때는 전체 재배치를 하지 않음
+            if (barsChanged) root.post { applyInsets() }
             ins
         }
 
@@ -542,13 +544,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun setOpen(p: Float) {
+        val wasOpen = openP > 0f
         openP = p
         box.translationY = (1f - p) * boxH
         box.visibility = if (p > 0f) View.VISIBLE else View.INVISIBLE
         dim.visibility = if (p > 0f) View.VISIBLE else View.GONE
         dim.alpha = p * .4f
         if (::indicator.isInitialized) indicator.alpha = 1f - (p * 3f).coerceAtMost(1f)
-        if (p == 0f) hideKeyboard()
+        // 상자를 '닫을 때만' 키보드를 내림. (예전에는 닫혀 있을 때마다 내려서,
+        //  로그인 창에서 키보드가 뜨면 화면 재배치 → 곧바로 키보드가 내려가는 문제가 있었음)
+        if (p == 0f && wasOpen) hideKeyboard()
     }
 
     private var anim: ValueAnimator? = null
