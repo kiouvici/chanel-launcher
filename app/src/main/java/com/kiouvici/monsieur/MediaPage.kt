@@ -117,6 +117,8 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     private var moveTo = -1; private var moveAt = 0L; private var moveFail = false; private var lastMove = -1
     private var outMore: TextView? = null
     private var spSig = ""
+    private var progView: LineProg? = null
+    private var libHead: TextView? = null
     private var l1: TextView? = null
     private var mzHead: TextView? = null
     private val am by lazy { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
@@ -139,7 +141,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         removeAllViews(); nowViews.clear(); houseViews.clear(); emptyViews.clear()
         art = null; title = null; sub = null; src = null; t0 = null; t1 = null; prog = null; play = null; playText = null
         out = null; sentence = null; whenLine = null; flaps = emptyList(); flapNote = null; spin = null; flowArt = null
-        atvName = null; atvSub = null; atvBtn = null; atvArt = null; mzState = null; mzBtn = null; mzName = null; vol = null; volLbl = null; volVal = null; outMore = null; l1 = null; mzHead = null; volPrefix = ""
+        atvName = null; atvSub = null; atvBtn = null; atvArt = null; mzState = null; mzBtn = null; mzName = null; vol = null; volLbl = null; volVal = null; outMore = null; l1 = null; mzHead = null; progView = null; libHead = null; volPrefix = ""
         val L = Lay(context, this, width, height)
         when (theme) {
             Look.LIBRARY -> buildLibrary(L)
@@ -314,6 +316,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         if (!now) { stopAnims(); art?.bmp = null; if (theme == Look.TRAIN) art?.placeholder = 1; updateVol(); return }
         art?.placeholder = 0
         saveLast()
+        progView?.idle = mode == 3   // 마지막 곡: 바탕선만 (손잡이·리본·채움 숨김)
         val t = meta(MediaMetadata.METADATA_KEY_TITLE)
         val ar = meta(MediaMetadata.METADATA_KEY_ARTIST).ifEmpty { meta(MediaMetadata.METADATA_KEY_ALBUM_ARTIST) }
         val al = meta(MediaMetadata.METADATA_KEY_ALBUM)
@@ -331,7 +334,8 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
                 title?.text = if (al.isNotEmpty()) "Plate · $al" else "Plate · $app"
                 val cal = java.util.Calendar.getInstance()
                 val day = arrayOf("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")[cal.get(java.util.Calendar.DAY_OF_WEEK) - 1]
-                whenLine?.text = if (mode == 3) "Last played — on this phone" else "%s, %d:%02d — %s".format(day, cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE), "on " + where(false))
+                libHead?.text = if (mode == 3) "LAST PLAYED" else "NOW PLAYING"
+                whenLine?.text = if (mode == 3) "Earlier — on this phone" else "%s, %d:%02d — %s".format(day, cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE), "on " + where(false))
                 out?.text = if (moveFail || moveTo >= 0) outLabel(outN, "") else android.text.SpannableStringBuilder("Listening on ").append(outN,
                     android.text.style.TypefaceSpan(Style.kr(context, 300)), 0).append(" — ").append("바꾸기", android.text.style.UnderlineSpan(), 0)
             }
@@ -406,7 +410,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
                 Look.LIBRARY -> t1?.text = if (mode == 3) "" else "$a / $b"
                 Look.CAPTION -> { val ar = meta(MediaMetadata.METADATA_KEY_ARTIST); val al = meta(MediaMetadata.METADATA_KEY_ALBUM)
                     sub?.text = (listOf(ar, al).filter { it.isNotEmpty() } + (if (mode == 3) "마지막으로 들은 곡" else "$a / $b")).joinToString(" · ") }
-                else -> { t0?.text = a; t1?.text = b }
+                else -> { t0?.text = if (mode == 3 && (theme == Look.HOUR || theme == Look.TRAIN)) "LAST PLAYED" else a; t1?.text = b }
             }
             return
         }
@@ -778,7 +782,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         L.addLR(src!!, 36f, 36f, 386f)
         // 진행: 검정 선 + 둥근 손잡이
         val pv = LineProg(context, Style.ink(.22f), Style.INK, L.zf(1f), L.zf(2f), knobR = L.zf(5.5f), knobRing = 0xFFF3EEE4.toInt()).apply { elevation = L.zf(12f) }
-        L.addLR(pv, 38.5f, 38.5f, 417f, 14f); prog = { pv.p = it }
+        L.addLR(pv, 38.5f, 38.5f, 417f, 14f); progView = pv; prog = { pv.p = it }
         t0 = L.t("", Style.jost(context, 400), 11f, Style.ink(.65f), .1f).apply { elevation = L.zf(12f) }
         L.add(t0!!, 44f, 432f)
         t1 = L.t("", Style.jost(context, 400), 11f, Style.ink(.65f), .1f, Gravity.END).apply { elevation = L.zf(12f) }
@@ -835,7 +839,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     private fun buildLibrary(L: Lay) {
         lightBg = true
         background = android.graphics.drawable.LayerDrawable(arrayOf(android.graphics.drawable.ColorDrawable(0xFFF3EEE4.toInt()), Style.tile(context, Style.PAPER, 300f)))
-        L.add(L.t("NOW PLAYING", Style.jost(context, 400), 10f, Style.ink(.55f), .35f), 36f, 70f)
+        libHead = L.t("NOW PLAYING", Style.jost(context, 400), 10f, Style.ink(.55f), .35f).also { L.add(it, 36f, 70f) }
         whenLine = L.t("", Fonts.serifI(context), 17f, Style.ink(.7f)).also { L.add(it, 36f, 92f) }
         // 사진 모서리로 붙인 앨범아트
         val plate = FrameLayout(context).apply { setBackgroundColor(Color.WHITE); elevation = L.zf(3f); clipChildren = false }
@@ -852,7 +856,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         sentence = L.t("", Fonts.serif(context), 25f, Style.INK, 0f, Gravity.CENTER).apply { setLineSpacing(L.zf(4f), 1f); maxLines = 3; ellipsize = android.text.TextUtils.TruncateAt.END }
         L.addLR(sentence!!, 36f, 36f, 396f)
         val pv = LineProg(context, Style.ink(.3f), Style.INK, L.zf(1f), L.zf(2f), marker = Style.img(context, "th/bookmark.webp"), markerW = L.zf(14f), markerH = L.zf(34f))
-        L.addLR(pv, 29f, 29f, 476f, 38f); prog = { pv.p = it }
+        L.addLR(pv, 29f, 29f, 476f, 38f); progView = pv; prog = { pv.p = it }
         t1 = L.t("", Style.jost(context, 400), 11f, Style.ink(.65f), .1f, Gravity.END).also { L.addLR(it, 36f, 36f, 489f) }
         val deb = Style.img(context, "th/deboss.webp")
         fun db(kind: Int, size: Float, icon: Float) = FrameLayout(context).apply {
@@ -911,7 +915,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         tw.addView(title!!, LayoutParams(-1, -1).apply { leftMargin = L.z(10f); rightMargin = L.z(10f) })
         sub = L.t("", Style.kr(context, 300), 13f, tint(.65f, H_IVORY), 0f, Gravity.CENTER).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { L.addLR(it, 48f, 48f, 393f) }
         val pv = LineProg(context, tint(.2f, H_IVORY), H_GOLD, L.zf(1f), L.zf(2f)).also { L.add(it, 48f, 438f, 316f, 10f) }
-        prog = { pv.p = it }
+        progView = pv; prog = { pv.p = it }
         t0 = L.t("", Style.jost(context, 400), 11f, tint(.6f, H_IVORY), .05f).also { L.add(it, 48f, 455f) }
         t1 = L.t("", Style.jost(context, 400), 11f, tint(.6f, H_IVORY), .05f, Gravity.END).also { L.add(it, 304f, 455f, 60f) }
         fun cb(kind: Int, size: Float) = FrameLayout(context).apply {
@@ -967,7 +971,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         title = L.t("", Fonts.serif(context), 20f, V_INK, .02f, Gravity.CENTER).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; elevation = L.zf(11f) }.also { L.addLR(it, 56f, 56f, 418f) }
         sub = L.t("", Style.kr(context, 300), 13f, tint(.7f, V_INK), 0f, Gravity.CENTER).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; elevation = L.zf(11f) }.also { L.addLR(it, 56f, 56f, 446f) }
         val pv = LineProg(context, tint(.35f, V_IVORY), V_IVORY, L.zf(1f), L.zf(2f), knobR = L.zf(4f), knobRing = V_NAVY).also { L.addLR(it, 36f, 36f, 502f, 14f) }
-        prog = { pv.p = it }
+        progView = pv; prog = { pv.p = it }
         t0 = L.t("", Style.jost(context, 400), 11f, tint(.7f, V_IVORY), .05f).also { L.add(it, 40f, 515f) }
         t1 = L.t("", Style.jost(context, 400), 11f, tint(.7f, V_IVORY), .05f, Gravity.END).also { L.add(it, 312f, 515f, 60f) }
         fun ib(kind: Int, size: Float) = FrameLayout(context).apply {
@@ -1023,7 +1027,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         title = L.t("", Style.jost(context, 300), 30f, Style.IVORY).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { L.addLR(it, 32f, 32f, 446f) }
         sub = L.t("", Style.kr(context, 300), 13f, Style.ivory(.75f)).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { L.addLR(it, 32f, 32f, 490f) }
         val pv = LineProg(context, Style.ivory(.2f), Style.IVORY, L.zf(1f), L.zf(2f)).also { L.addLR(it, 32f, 32f, 513f, 4f) }
-        prog = { pv.p = it; credit.text = "PHOTOGRAPHIE — " + meta(MediaMetadata.METADATA_KEY_ALBUM).ifEmpty { appName() }.uppercase() }
+        progView = pv; prog = { pv.p = it; credit.text = "PHOTOGRAPHIE — " + meta(MediaMetadata.METADATA_KEY_ALBUM).ifEmpty { appName() }.uppercase() }
         val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
         fun tb(s: String, go: () -> Unit) = L.t(s, Style.kr(context, 300), 15f, Style.ivory(.75f), .2f, Gravity.CENTER).also { row.addView(tap(it, go), LinearLayout.LayoutParams(0, -1, 1f)) }
         tb("이전") { doPrev() }
@@ -1072,12 +1076,16 @@ class LineProg(ctx: Context, private val track: Int, private val fill: Int, priv
                private val marker: Bitmap? = null, private val markerW: Float = 0f, private val markerH: Float = 0f) : View(ctx) {
     var p = 0f
         set(v) { field = v.coerceIn(0f, 1f); invalidate() }
+    /** 재생 중이 아님(마지막 곡): 바탕선만 */
+    var idle = false
+        set(v) { if (field != v) { field = v; invalidate() } }
     private val pt = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     override fun onDraw(c: Canvas) {
         val pad = maxOf(knobR, markerW / 2)
         val y = if (marker != null) markerH * .15f + 2f else height / 2f
         val x0 = pad; val x1 = width - pad; val x = x0 + (x1 - x0) * p
         pt.color = track; c.drawRect(x0, y - trackPx / 2, x1, y + trackPx / 2, pt)
+        if (idle) return
         pt.color = fill; c.drawRect(x0, y - fillPx / 2, x, y + fillPx / 2, pt)
         if (knobR > 0f) { pt.color = knobRing; c.drawCircle(x, y, knobR + knobR * .36f, pt); pt.color = fill; c.drawCircle(x, y, knobR, pt) }
         if (marker != null) c.drawBitmap(marker, null, RectF(x - markerW / 2, y - markerH * .15f, x + markerW / 2, y + markerH * .85f), pt)

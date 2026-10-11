@@ -1676,7 +1676,9 @@ class MainActivity : ComponentActivity(), MediaHost {
                 tiles.forEachIndexed { i, t ->
                     val on = i == cur()
                     t.foreground = GradientDrawable().apply { if (on) setStroke(dp(2.5f), acc) else setStroke(hair(.75f), Style.ink(.2f)) }
-                    t.alpha = if (on) 1f else .5f
+                    // 칸 바탕은 그대로, 그림과 글자만 흐리게 (회색 막을 덮지 않음)
+                    t.alpha = 1f
+                    for (k in 0 until (t as ViewGroup).childCount) t.getChildAt(k).let { c -> if (c !== marks[i]) c.alpha = if (on) 1f else .5f }
                     marks[i].visibility = if (on) View.VISIBLE else View.INVISIBLE
                 }
             }
