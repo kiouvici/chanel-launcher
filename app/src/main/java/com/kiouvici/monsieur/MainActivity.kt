@@ -413,7 +413,7 @@ class MainActivity : ComponentActivity() {
  var hit='';
  (function walk(r){ if(hit) return; r.querySelectorAll('*').forEach(function(e){ if(e.shadowRoot) walk(e.shadowRoot); });
    var tw=document.createTreeWalker(r,NodeFilter.SHOW_TEXT),n;
-   while(!hit&&(n=tw.nextNode())){ var t=(n.textContent||'').trim(); if(/^-?\d+(\.\d+)?°\s*·/.test(t)&&t.length<60) hit=t; } })(document);
+   while(!hit&&(n=tw.nextNode())){ var t=(n.textContent||'').trim(); if(/^-?\d+(\.\d+)?°\s*·/.test(t)&&t.length<60&&t.indexOf('›')<0) hit=t; } })(document);
  if(hit) return hit;
  // 화면에 아직 안 그려졌으면: 대시보드와 같은 네이버 날씨 값으로 기온·상태만
  var st=ha.hass.states['weather.naver_weather_jeceonsi_jangragdong_nalssi_jeceonsi_jangragdong'];
