@@ -773,7 +773,9 @@ class MainActivity : ComponentActivity() {
             setImageDrawable(Style.tabDrawable(this@MainActivity)); scaleType = ImageView.ScaleType.FIT_XY
             elevation = dpf(4f); outlineSpotShadowColor = Color.argb(128, 0, 0, 0)
         }
-        box.addView(tab, FrameLayout.LayoutParams(dp(44f), dp(24f), Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(18f) })
+        // 실사 리본 탭은 가로로 긴 고리(약 3:1)라 60×20dp, 선 아래로 약 12dp 늘어짐. 코드로 그린 탭이면 44×24dp
+        val real = Style.has(this, "tab.webp")
+        box.addView(tab, FrameLayout.LayoutParams(dp(if (real) 60f else 44f), dp(if (real) 20f else 24f), Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(if (real) 20f else 18f) })
         val grip = View(this).apply { contentDescription = "서랍 닫기" }
         box.addView(grip, FrameLayout.LayoutParams(-1, dp(56f)))
         val drag = DragOpen(fromOpen = true)
