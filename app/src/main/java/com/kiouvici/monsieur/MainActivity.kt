@@ -104,6 +104,7 @@ class MainActivity : ComponentActivity() {
     private var sbTop = 0           // 상태바 높이
     private var navBot = 0          // 아래 시스템 제스처 영역 높이
     private var loginLayer: FrameLayout? = null
+    private var lastLogin = 0L
     private lateinit var box: FrameLayout
     private lateinit var grid: GridLayout
     private lateinit var countText: TextView
@@ -239,11 +240,7 @@ class MainActivity : ComponentActivity() {
                 override fun onPageFinished(view: WebView?, u: String?) {
                     val url = u ?: ""
                     if (url.contains("/auth/")) view?.evaluateJavascript(KEEP_LOGIN_JS, null)
-                    else if (url.contains("/dashboard-chanel")) {
-                        // 로그인 끝 → 세 화면을 새로 불러오고 창을 닫음
-                        CookieManager.getInstance().flush()
-                        root.postDelayed({ hideLogin(); web.loadUrl(HOME_URL); webHouse.loadUrl(HOUSE_URL) }, 600)
-                    }
+                    else if (url.contains("/dashboard-chanel")) waitTokens(view, 0)
                 }
             }
             loadUrl(HOME_URL)
@@ -252,6 +249,20 @@ class MainActivity : ComponentActivity() {
         layer.setPadding(0, sbTop, 0, navBot)
         root.addView(layer, FrameLayout.LayoutParams(-1, -1))
         loginLayer = layer
+    }
+
+    /** 로그인 직후 HA가 토큰을 저장할 때까지 기다렸다가(최대 30초) 창을 닫음.
+     *  예전에는 0.6초 만에 닫아서 토큰이 저장되기 전에 창이 사라져 로그인이 무한 반복됐음 */
+    private fun waitTokens(view: WebView?, n: Int) {
+        view ?: return
+        view.evaluateJavascript("(function(){try{return localStorage.getItem('hassTokens')?'1':'0'}catch(e){return '0'}})()") { r ->
+            if (r?.contains("1") == true) {
+                CookieManager.getInstance().flush()
+                lastLogin = System.currentTimeMillis()
+                hideLogin(); web.loadUrl(HOME_URL); webHouse.loadUrl(HOUSE_URL)
+            } else if (n < 60) root.postDelayed({ waitTokens(view, n + 1) }, 500)
+            // 30초가 지나도 저장이 안 되면 창을 그대로 둠 (반복 방지)
+        }
     }
 
     private fun hideLogin() {
@@ -277,7 +288,11 @@ class MainActivity : ComponentActivity() {
         }
         webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, u: String?) {
-                if ((u ?: "").contains("/auth/")) { showLogin(); return }
+                if ((u ?: "").contains("/auth/")) {
+                    // 방금 로그인했으면 다시 띄우지 않고 한 번 더 불러오기만 (토큰 반영 지연 대비)
+                    if (System.currentTimeMillis() - lastLogin < 15000) { view?.postDelayed({ view.loadUrl(if (isHome) HOME_URL else HOUSE_URL) }, 1500); return }
+                    showLogin(); return
+                }
                 view?.evaluateJavascript(HIDE_HEADER_JS, null)
                 if (isHome) { pageLoaded = true; hideProgress() }
             }
