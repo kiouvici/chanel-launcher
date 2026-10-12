@@ -4,6 +4,7 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapShader
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
@@ -294,8 +295,9 @@ class Manuscript(ctx: Context) : View(ctx) {
     private val tp = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
 
     fun measureFor(w: Int, h: Int) {
-        u = minOf(w / 390f, h / (rows * 44f + 18f))   // 아래 안쪽 여백 4 (마지막 줄이 테두리에 붙지 않게)
-        ox = (w - 380 * u) / 2f; oy = 5 * u
+        val extra = if (Dk.lib) 26f else 18f   // 블랙: 종이 가장자리·그림자 자리
+        u = minOf(w / 392f, h / (rows * 44f + extra))   // 아래 안쪽 여백 4 (마지막 줄이 테두리에 붙지 않게)
+        ox = (w - 380 * u) / 2f; oy = (if (Dk.lib) 9 else 5) * u
     }
     /** 폴더 i의 줄·쪽(0 왼쪽 1 오른쪽) */
     fun slot(i: Int): Pair<Int, Int> = if (vertical) (i % rows) to (i / rows) else (i / 2) to (i % 2)
@@ -305,11 +307,21 @@ class Manuscript(ctx: Context) : View(ctx) {
 
     override fun onDraw(c: Canvas) {
         if (u <= 0f) return
-        val a = if (Dk.lib) .60f else .50f   // 먹지 위는 조금 진하게 (#C8604A 60%)
-        val rr = if (Dk.lib) 200 else 192; val gg = if (Dk.lib) 96 else 83; val bb = if (Dk.lib) 74 else 63
+        val a = if (false) .60f else .50f   // 먹지 위는 조금 진하게 (#C8604A 60%)
+        val rr = if (false) 200 else 192; val gg = if (false) 96 else 83; val bb = if (false) 74 else 63
         val col = Color.argb((a * 255).roundToInt(), rr, gg, bb)
-        val dimc = Color.argb(((if (Dk.lib) .35f else a * .6f) * 255).roundToInt(), rr, gg, bb)
+        val dimc = Color.argb(((if (false) .35f else a * .6f) * 255).roundToInt(), rr, gg, bb)
         val L = ox; val R = ox + 380 * u; val T = oy; val B = oy + (rows * 44 + 8) * u
+        // 블랙 바탕: 먹지 위에 아이보리 원고지 종이 한 장 (그림자 · 가는 가장자리) — 샤넬팀 6:1
+        if (Dk.lib) {
+            val pr = RectF(L - 6 * u, T - 6 * u, R + 6 * u, B + 6 * u)
+            p.style = Paint.Style.FILL; p.shader = null
+            p.color = 0xFFF3EEE3.toInt(); p.setShadowLayer(16 * u, 0f, 4 * u, Color.argb(115, 0, 0, 0)); c.drawRect(pr, p); p.clearShadowLayer()
+            p.shader = BitmapShader(Style.img(context, Style.PAPER), Shader.TileMode.REPEAT, Shader.TileMode.REPEAT).apply {
+                setLocalMatrix(android.graphics.Matrix().apply { val k = 300f * resources.displayMetrics.density / Style.img(context, Style.PAPER).width; setScale(k, k) }) }
+            c.drawRect(pr, p); p.shader = null
+            p.style = Paint.Style.STROKE; p.strokeWidth = resources.displayMetrics.density; p.color = Color.argb(26, 0, 0, 0); c.drawRect(pr, p)
+        }
         // 겹선 테두리
         p.style = Paint.Style.STROKE; p.color = Color.argb((a * 1.27f * 255).roundToInt().coerceAtMost(255), rr, gg, bb)
         p.strokeWidth = 1.5f * u; c.drawRect(L + .5f * u, T, R - .5f * u, B, p)
@@ -317,7 +329,7 @@ class Manuscript(ctx: Context) : View(ctx) {
         // 가운데 접힌 자국
         p.style = Paint.Style.FILL
         val mid = (L + R) / 2
-        p.shader = LinearGradient(mid - 6 * u, 0f, mid + 6 * u, 0f, intArrayOf(Color.TRANSPARENT, if (Dk.lib) Color.argb(90, 0, 0, 0) else Color.argb(15, 94, 78, 58), Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
+        p.shader = LinearGradient(mid - 6 * u, 0f, mid + 6 * u, 0f, intArrayOf(Color.TRANSPARENT, if (false) Color.argb(90, 0, 0, 0) else Color.argb(15, 94, 78, 58), Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
         c.drawRect(mid - 6 * u, T, mid + 6 * u, B, p); p.shader = null
         p.style = Paint.Style.STROKE; p.strokeWidth = .75f * u
         for (r in 0 until rows) {
@@ -339,10 +351,10 @@ class Manuscript(ctx: Context) : View(ctx) {
                 val latin = ch.code < 128 && ch.isLetter()
                 tp.typeface = if (latin) Fonts.serif(context) else Fonts.serifKR(context)
                 tp.textSize = (if (latin) 17f else 16f) * u * resources.displayMetrics.density / resources.displayMetrics.density
-                tp.color = if (Dk.lib) Dk.LIB_TX else M_INK
+                tp.color = if (false) Dk.LIB_TX else M_INK
                 val cxx = x0 + (25 * j + 12.5f) * u
                 c.drawText(ch.toString(), cxx, y0 + 12.5f * u - (tp.ascent() + tp.descent()) / 2, tp)
-                if (i in favs) { p.color = if (Dk.lib) Dk.LIB_TX else M_INK; c.drawCircle(cxx, y0 - 5 * u, 1.75f * u, p) }
+                if (i in favs) { p.color = if (false) Dk.LIB_TX else M_INK; c.drawCircle(cxx, y0 - 5 * u, 1.75f * u, p) }
             }
         }
     }

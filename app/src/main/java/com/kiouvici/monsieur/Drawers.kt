@@ -161,7 +161,7 @@ internal fun MainActivity.buildStage() {
                 vertical = look.libOrder == 0; rows = maxOf(15, (folders.size + 1) / 2)
             }
             ms.measureFor(W, H)
-            val needH = ((ms.rows * 44f + 18f) * ms.u).roundToInt()
+            val needH = ((ms.rows * 44f + (if (Dk.lib) 26f else 18f)) * ms.u).roundToInt()
             stageIn.addView(ms, FrameLayout.LayoutParams(W, maxOf(H, needH)))
             var waiting = 0
             folders.forEachIndexed { i, id ->
@@ -181,7 +181,7 @@ internal fun MainActivity.buildStage() {
                 val len = names[i].take(7).length
                 val cx = if (len < 7) ms.cellLeft(side) + (25 * len + 12.5f) * ms.u else if (side == 0) ms.ox + 190f * ms.u else ms.ox + 383f * ms.u
                 val sz = (10f * ms.u).roundToInt()
-                val d = View(this).apply { background = shape(if (Dk.lib) Dk.LIB_DOT else M_RED, oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
+                val d = View(this).apply { background = shape(M_RED, oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
                 stageIn.addView(d, FrameLayout.LayoutParams(sz, sz).apply { leftMargin = (cx - sz / 2f).roundToInt(); topMargin = (ms.charTop(r) + 12.5f * ms.u - sz / 2f).roundToInt() })
                 gridDots[id] = d
             }
@@ -510,19 +510,19 @@ internal fun MainActivity.cardTopFor(t: Int): Int {
 
 /** LIBRARY 카드 바탕: 펼친 두 쪽 (가운데 접힘 그늘) */
 class BookSpread(private val ctx: Context) : android.graphics.drawable.Drawable() {
-    private val paper: android.graphics.drawable.Drawable = if (Dk.lib) android.graphics.drawable.ColorDrawable(Dk.LIB_PAGE) else Style.tile(ctx, Style.PAPER, 256f)
+    private val paper: android.graphics.drawable.Drawable = Style.tile(ctx, Style.PAPER, 256f)
     private val p = Paint()
     override fun draw(c: Canvas) {
         val b = bounds
         paper.bounds = b; paper.draw(c)
-        val mid = b.exactCenterX(); val gw = ctx.dpf(if (Dk.lib) 12f else 18f)
-        val fold = if (Dk.lib) 140 else 64   // 블랙: 접힌 곳 그늘 55%
+        val mid = b.exactCenterX(); val gw = ctx.dpf(18f)
+        val fold = 64
         p.shader = android.graphics.LinearGradient(mid - gw, 0f, mid, 0f, Color.TRANSPARENT, Color.argb(fold, 0, 0, 0), android.graphics.Shader.TileMode.CLAMP)
         c.drawRect(mid - gw, b.top.toFloat(), mid, b.bottom.toFloat(), p)
         p.shader = android.graphics.LinearGradient(mid, 0f, mid + gw, 0f, Color.argb(fold, 0, 0, 0), Color.TRANSPARENT, android.graphics.Shader.TileMode.CLAMP)
         c.drawRect(mid, b.top.toFloat(), mid + gw, b.bottom.toFloat(), p)
         p.shader = null; p.color = Color.argb(40, 0, 0, 0); c.drawRect(mid - .5f, b.top.toFloat(), mid + .5f, b.bottom.toFloat(), p)
-        if (Dk.lib) { p.style = Paint.Style.STROKE; p.strokeWidth = ctx.dpf(1f); p.color = Color.argb(31, 237, 230, 216); c.drawRect(b.left + .5f, b.top + .5f, b.right - .5f, b.bottom - .5f, p); p.style = Paint.Style.FILL }
+
     }
     override fun setAlpha(alpha: Int) {}
     override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
@@ -642,7 +642,7 @@ internal fun MainActivity.showLibraryOpen(id: String, page: Int = 0) {
     val layer = FrameLayout(this).apply { elevation = dpf(24f); isClickable = true }
     layer.addView(View(this).apply { setBackgroundColor(if (Dk.lib) Color.argb(140, 0, 0, 0) else Color.argb(72, 60, 42, 22)); setOnClickListener { hideCard() } }, FrameLayout.LayoutParams(-1, -1))
     val L = Lay(this, layer, root.width, root.height)
-    fun ink(a: Float) = Dk.li(a)
+    fun ink(a: Float) = tint(a, Style.INK)   // 열린 책은 블랙에서도 아이보리 종이 (샤넬팀 6:1)
     val bookW = root.width - dp(32f)
     val pageW = bookW / 2
     val top = maxOf(sbTop + dp(48f), L.y(230f))
@@ -650,7 +650,7 @@ internal fun MainActivity.showLibraryOpen(id: String, page: Int = 0) {
     val book = FrameLayout(this).apply { background = BookSpread(this@showLibraryOpen); elevation = dpf(12f); isClickable = true }
     val cellW = (pageW - dp(28f)) / 2
     fun grid(apps: List<AppEntry>) = GridLayout(this).apply { columnCount = 2
-        apps.forEach { a -> addView(appCell(a, a.pkg in BadgeService.active, id, onDark = Dk.lib), GridLayout.LayoutParams().apply { width = cellW }) } }
+        apps.forEach { a -> addView(appCell(a, a.pkg in BadgeService.active, id), GridLayout.LayoutParams().apply { width = cellW }) } }
     val left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18f), dp(24f), dp(10f), dp(16f)) }
     left.addView(txt("VOL. %02d".format(repo.folders().indexOf(id) + 1), Style.jost(this, 400), 9f, ink(.55f), .35f))
     left.addView(txt(shortName(repo.nameOf(id)), Style.kr(this, 300), 22f, ink(1f)).apply { maxLines = 2 }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10f) })

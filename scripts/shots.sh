@@ -22,7 +22,7 @@ for t in 0 1 2 3 4; do
   adb exec-out screencap -p > shots/t${t}_1h_media.png
   adb shell am start -n $A --ei page 0 --ez drawer true; sleep 3
   adb exec-out screencap -p > shots/t${t}_2_drawer.png
-  adb shell am start -n $A --ei page 0 --ez drawer true --ei folder 3; sleep 4
+  adb shell am start -n $A --ei page 0 --ez drawer true --ei folder 15; sleep 4
   adb exec-out screencap -p > shots/t${t}_3_open.png
   adb shell input keyevent KEYCODE_BACK; sleep 1
 done
