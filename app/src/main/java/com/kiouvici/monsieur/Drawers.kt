@@ -145,7 +145,7 @@ internal fun MainActivity.buildStage() {
     stageIn.removeAllViews(); gridDots.clear(); hourCenter = null; stageIn.background = null
     val folders = repo.folders()
     val favs = repo.favorites()
-    val badges = BadgeService.active
+    val badges = Badges.shown()
     val q = search.text?.toString()?.trim() ?: ""
     fun dimIfNot(v: View, id: String) {
         if (q.isNotEmpty() && !repo.nameOf(id).contains(q) && repo.appsIn(id).none { it.label.contains(q, true) }) v.alpha = .25f
@@ -555,7 +555,7 @@ internal fun MainActivity.showHourOpen(id: String) {
     val grid = GridLayout(this).apply { columnCount = 4 }
     val cw = (root.width - L.x(24f) - dp(36f) - dp(18f)) / 4
     list.forEachIndexed { i, a ->
-        val cell = appCell(a, a.pkg in BadgeService.active, id, compact = true, onDark = true).apply { background = windowDrawable(this@showHourOpen); setPadding(0, dp(12f), 0, dp(8f)) }
+        val cell = appCell(a, a.pkg in Badges.shown(), id, compact = true, onDark = true).apply { background = windowDrawable(this@showHourOpen); setPadding(0, dp(12f), 0, dp(8f)) }
         grid.addView(cell, GridLayout.LayoutParams().apply { width = cw; if (i % 4 > 0) leftMargin = dp(6f); topMargin = dp(8f) })
     }
     val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; addView(grid) }
@@ -595,7 +595,7 @@ internal fun MainActivity.showVoyageOpen(id: String) {
     col.addView(txt(shortName(repo.nameOf(id)), Style.kr(this, 300), 26f, V_INK).apply { maxLines = 1 }, LinearLayout.LayoutParams((240 * sx).roundToInt(), -2).apply { topMargin = dp(6f) })
     val grid = GridLayout(this).apply { columnCount = 5 }
     val cw = (cardW - dp(44f)) / 5
-    list.forEach { a -> grid.addView(appCell(a, a.pkg in BadgeService.active, id, onDark = Dk.inkPage), GridLayout.LayoutParams().apply { width = cw }) }
+    list.forEach { a -> grid.addView(appCell(a, a.pkg in Badges.shown(), id, onDark = Dk.inkPage), GridLayout.LayoutParams().apply { width = cw }) }
     val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; addView(grid) }
     col.addView(sv, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = (h * .07f).roundToInt() })
     if (list.isEmpty()) col.addView(txt("비어 있습니다 · 다른 폴더의 앱을 길게 눌러 끌어 오세요", Style.kr(this, 300), 12f, tint(.7f, V_INK)), LinearLayout.LayoutParams(-1, -2))
@@ -626,7 +626,7 @@ internal fun MainActivity.showCaptionOpen(id: String) {
     val list = repo.appsIn(id)
     val cw = (root.width - L.x(56f) - dp(16f)) / 2
     list.forEachIndexed { i, a ->
-        grid.addView(appCell(a, a.pkg in BadgeService.active, id, row = true, onDark = true), GridLayout.LayoutParams().apply { width = cw; if (i % 2 == 1) leftMargin = dp(16f) })
+        grid.addView(appCell(a, a.pkg in Badges.shown(), id, row = true, onDark = true), GridLayout.LayoutParams().apply { width = cw; if (i % 2 == 1) leftMargin = dp(16f) })
     }
     val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; addView(grid) }
     layer.addView(sv, FrameLayout.LayoutParams(-1, -1).apply { leftMargin = L.x(28f); rightMargin = L.x(28f); topMargin = L.y(304f); bottomMargin = navBot + dp(76f) })
@@ -655,7 +655,7 @@ internal fun MainActivity.showLibraryOpen(id: String, page: Int = 0) {
     val book = FrameLayout(this).apply { background = BookSpread(this@showLibraryOpen); elevation = dpf(12f); isClickable = true }
     val cellW = (pageW - dp(28f)) / 2
     fun grid(apps: List<AppEntry>) = GridLayout(this).apply { columnCount = 2
-        apps.forEach { a -> addView(appCell(a, a.pkg in BadgeService.active, id), GridLayout.LayoutParams().apply { width = cellW }) } }
+        apps.forEach { a -> addView(appCell(a, a.pkg in Badges.shown(), id), GridLayout.LayoutParams().apply { width = cellW }) } }
     val left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18f), dp(24f), dp(10f), dp(16f)) }
     left.addView(txt("VOL. %02d".format(repo.folders().indexOf(id) + 1), Style.jost(this, 400), 9f, ink(.55f), .35f))
     left.addView(txt(shortName(repo.nameOf(id)), Style.kr(this, 300), 22f, ink(1f)).apply { maxLines = 2 }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10f) })

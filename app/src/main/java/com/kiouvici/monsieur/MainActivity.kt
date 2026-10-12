@@ -160,7 +160,7 @@ class MainActivity : ComponentActivity(), MediaHost {
 
     // ───────── 시작 ─────────
     override fun onCreate(savedInstanceState: Bundle?) {
-        TouchLog.install(); TouchLog.add("앱 새로 시작")
+        TouchLog.install(); TouchLog.add("앱 새로 시작"); Badges.app = applicationContext
         super.onCreate(savedInstanceState)
         repo = AppRepo(this)
         look = Look(this)
@@ -203,7 +203,7 @@ class MainActivity : ComponentActivity(), MediaHost {
             addAction(Intent.ACTION_DATE_CHANGED); addAction(Intent.ACTION_TIMEZONE_CHANGED)
         })
 
-        BadgeService.onChange = { runOnUiThread { if (openP > 0f) refreshBadges() else badgeDirty = true } }
+        BadgeService.onChange = { runOnUiThread { Badges.syncUsage(this); refreshBadges() } }
 
         // 앱 설치·삭제·바뀜 때만 앱 목록을 다시 읽음 (뒤 스레드) — 예전엔 홈에 올 때마다 300개를 다시 읽었음
         registerReceiver(pkgRx, android.content.IntentFilter().apply {
@@ -271,7 +271,7 @@ class MainActivity : ComponentActivity(), MediaHost {
     /** 알림 점만 다시 켜고 끔 (서랍 전체를 다시 그리지 않음) */
     private fun refreshBadges() {
         badgeDirty = false
-        val b = BadgeService.active
+        val b = Badges.shown()
         gridDots.forEach { (id, v) -> v.visibility = if (repo.appsIn(id).any { it.pkg in b }) View.VISIBLE else View.GONE }
         cardDots.forEach { (pkg, vs) -> vs.forEach { it.visibility = if (pkg in b) View.VISIBLE else View.GONE } }
     }
@@ -347,6 +347,8 @@ class MainActivity : ComponentActivity(), MediaHost {
         val t0 = android.os.SystemClock.uptimeMillis()
         if (stageSig() != builtSig) refreshGrid()
         TouchLog.add("onResume · 서랍 확인 ${android.os.SystemClock.uptimeMillis() - t0}ms")
+        // 알림 점: 다른 앱에서 돌아오면 사용 기록을 읽고 폴더 점·앱 점을 함께 다시 켬 (build-38)
+        Badges.syncUsage(this); refreshBadges()
         TouchLog.firstFrame("복귀")
         media.setShown(cur == 1)
         updateDate()
@@ -1332,7 +1334,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         cardApps.removeAllViews()
         cardDots.clear()
         cardEmpty.visibility = if (list.isEmpty() && !f.startsWith("__")) View.VISIBLE else View.GONE
-        val badges = BadgeService.active
+        val badges = Badges.shown()
         val src = if (f.startsWith("__")) null else f
         val cw = dp(look.iconDp + 26f)
         // LIBRARY 펼친 책: 2열 + 가운데 접힘 + 2열
@@ -1439,7 +1441,7 @@ class MainActivity : ComponentActivity(), MediaHost {
                     iv.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
                     when {
                         longed && !dragged -> appMenu(cell, a, src)
-                        !longed && !moved -> { repo.launch(a, src); closeAllLater() }
+                        !longed && !moved -> { repo.launch(a, src); refreshBadges(); closeAllLater() }
                     }
                     true
                 }
@@ -1662,7 +1664,12 @@ class MainActivity : ComponentActivity(), MediaHost {
         openSheet { sh ->
             sheetKicker(sh, "TOUCH LOG · 터치 기록")
             // 최근 것이 위로 (화면 한 장에 복귀 직후가 다 보이게)
-            val lines = TouchLog.text().lines().takeLast(44).reversed().joinToString("\n")
+            Badges.syncUsage(this)
+            val rep = Badges.report(this) { pkg -> repo.apps.firstOrNull { it.pkg == pkg }?.let { e -> e.label + " (" + repo.foldersFor(pkg).joinToString(",") { repo.nameOf(it) }.ifEmpty { "폴더 없음" } + ")" } ?: pkg }
+            sh.addView(TextView(this).apply {
+                text = "알림 점\n" + rep; textSize = 9.5f; typeface = android.graphics.Typeface.MONOSPACE; setTextColor(Style.INK)
+            }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12f) })
+            val lines = TouchLog.text().lines().takeLast(30).reversed().joinToString("\n")
             sh.addView(TextView(this).apply {
                 text = lines; textSize = 9.5f; typeface = android.graphics.Typeface.MONOSPACE
                 setTextColor(Style.INK); setLineSpacing(0f, 1.05f)
@@ -1709,6 +1716,8 @@ class MainActivity : ComponentActivity(), MediaHost {
             row("HA 연결 · 미디어", if (look.haToken.isBlank()) "연결 안 됨" else "토큰 있음", true) { tokenSheet() }; line()
             FineVol.init(getSystemService(AUDIO_SERVICE) as android.media.AudioManager)
             row("폰 볼륨 · PHONE", FineVol.note, false) {}; line()
+            row("알림 점 · 앱 사용 기록", if (Badges.usageGranted(this)) "허용됨" else "허용 필요", true) {
+                openSafely(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }; line()
             row("터치 기록 보기 · 진단", null, true) { touchLogSheet() }; line()
             row("폴더 추가", null, repo.folderCount() < AppRepo.MAX_FOLDERS) {
                 // 저장을 눌러야 폴더가 생김 (취소하면 아무것도 안 생김)

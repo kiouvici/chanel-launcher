@@ -337,6 +337,7 @@ class AppRepo(private val ctx: Context) {
 
     fun launch(a: AppEntry, folder: String?) {
         opens[a.pkg] = (opens[a.pkg] ?: 0) + 1
+        Badges.markSeen(ctx, a.pkg)   // 연 앱의 점은 바로 꺼짐
         if (folder != null && folder in folderIds) {
             val m = fOpens.getOrPut(folder) { HashMap() }; m[a.pkg] = (m[a.pkg] ?: 0) + 1
         }
