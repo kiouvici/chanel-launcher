@@ -309,7 +309,10 @@ class MainActivity : ComponentActivity(), MediaHost {
 
     override fun onResume() {
         super.onResume()
-        refreshGrid()
+        // 다른 앱에서 돌아올 때 서랍 전체를 다시 그리느라(약 1초) 터치가 늦던 것 — 바뀐 게 있을 때만 다시 그림
+        val t0 = android.os.SystemClock.uptimeMillis()
+        if (stageSig() != builtSig) refreshGrid()
+        android.util.Log.d("MNS", "resume grid ${android.os.SystemClock.uptimeMillis() - t0}ms")
         media.setShown(cur == 1)
         updateDate()
         root.postDelayed({ refreshWeather() }, 1500)
@@ -984,6 +987,16 @@ class MainActivity : ComponentActivity(), MediaHost {
     internal fun refreshGrid() {
         if (!::stage.isInitialized) return
         buildStage()
+        builtSig = stageSig()
+    }
+    /** 서랍 그림에 쓰이는 것들의 요약 — 같으면 다시 그릴 필요 없음 */
+    internal var builtSig = ""
+    internal fun stageSig(): String {
+        if (!::stage.isInitialized) return ""
+        val f = repo.folders()
+        return listOf(look.theme, look.libOrder, look.folderScale, repo.iconMode, stage.width, stage.height,
+            f.joinToString(",") { it + ":" + repo.nameOf(it) + ":" + repo.appsIn(it).size }, repo.favorites().sorted().joinToString(","),
+            repo.unassigned().size, search.text?.toString() ?: "").joinToString("|")
     }
 
     /** '쇼핑(온라인)' → '쇼핑·온라인' 한 줄 */
