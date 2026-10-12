@@ -193,13 +193,13 @@ class LabelBg(private val ctx: Context, private val fav: Boolean) : Drawable() {
         val b = bounds
         p.style = Paint.Style.FILL; p.pathEffect = null
         p.color = Color.argb(64, 0, 0, 0); c.drawRect(b.left.toFloat(), b.top + 1f, b.right.toFloat(), b.bottom.toFloat(), p)
-        p.color = if (Dk.voy) Dk.VOY_NAVY else V_LABEL; c.drawRect(b.left.toFloat(), b.top.toFloat(), b.right.toFloat(), b.bottom - ctx.dpf(1f), p)
+        p.color = V_LABEL; c.drawRect(b.left.toFloat(), b.top.toFloat(), b.right.toFloat(), b.bottom - ctx.dpf(1f), p)
         val inset = ctx.dpf(6f); val y0 = b.top + ctx.dpf(5f); val y1 = b.bottom - ctx.dpf(6f)
         p.style = Paint.Style.STROKE
         listOf(b.left + inset, b.right - inset).forEachIndexed { i, x ->
-            val ink = if (Dk.voy) V_IVORY else V_INK
+            val ink = V_INK   // 라벨은 블랙에서도 아이보리 + 남색 (성훈님 선택)
             if (i == 0 && fav) { p.pathEffect = null; p.strokeWidth = ctx.dpf(2f); p.color = ink }
-            else { p.pathEffect = android.graphics.DashPathEffect(floatArrayOf(ctx.dpf(2f), ctx.dpf(2f)), 0f); p.strokeWidth = ctx.dpf(.5f); p.color = tint(if (Dk.voy) .4f else .45f, ink) }
+            else { p.pathEffect = android.graphics.DashPathEffect(floatArrayOf(ctx.dpf(2f), ctx.dpf(2f)), 0f); p.strokeWidth = ctx.dpf(.5f); p.color = tint(.45f, ink) }
             c.drawLine(x, y0, x, y1, p)
         }
         p.pathEffect = null

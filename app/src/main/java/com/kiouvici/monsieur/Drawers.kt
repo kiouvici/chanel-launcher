@@ -303,7 +303,7 @@ private fun MainActivity.labelView(id: String, nm: String, fav: Boolean, badge: 
     repo.coverApps(id).firstOrNull()?.let { a ->
         v.addView(ImageView(this).apply { setImageDrawable(iconOf(a)); styleIcon(this) }, FrameLayout.LayoutParams(dp(18f), dp(18f), Gravity.CENTER_VERTICAL).apply { leftMargin = dp(16f) })
     }
-    val tv = txt(nm, Style.kr(this, if (fav) 600 else 500), nameSp(14f), look.nameColorOn(!Dk.voy, if (Dk.voy) Dk.LIB_TX else V_INK), 0f, Gravity.CENTER_VERTICAL).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+    val tv = txt(nm, Style.kr(this, if (fav) 600 else 500), nameSp(14f), look.nameColorOn(true, V_INK), 0f, Gravity.CENTER_VERTICAL).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
     v.addView(tv, FrameLayout.LayoutParams(-1, -1).apply { leftMargin = dp(40f); rightMargin = dp(22f) })
     val d = View(this).apply { background = shape(Style.ROUGE, oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
     v.addView(d, FrameLayout.LayoutParams(dp(6f), dp(6f), Gravity.END or Gravity.CENTER_VERTICAL).apply { rightMargin = dp(14f) })
