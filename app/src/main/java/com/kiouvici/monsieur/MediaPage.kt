@@ -180,10 +180,13 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     private fun pickSession() {
         val all = try { msm.getActiveSessions(comp).also { permOk = true } } catch (e: SecurityException) { permOk = false; emptyList() }
         others = all.filter { it.packageName != SPOTIFY_PKG }
-        // 미디어 화면은 스포티파이만 따라감 — 지니 등 다른 앱은 무시 (성훈님 결정, build-39)
-        val list = all.filter { it.packageName == SPOTIFY_PKG }
-        val pick = list.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
-            ?: list.firstOrNull { it.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)?.isNotBlank() == true }
+        // 스포티파이가 기본. 다만 지니 등 다른 앱이 지금 재생 중(스포티파이는 멈춤)이면 그 앱을 보여 줌 (성훈님, build-42)
+        val sp = all.filter { it.packageName == SPOTIFY_PKG }
+        fun playingIn(l: List<MediaController>) = l.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING && it.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)?.isNotBlank() == true }
+        val pick = playingIn(sp) ?: playingIn(others)
+            // 지니를 일시정지했으면 그대로 지니를 보여 줌 (다시 재생할 수 있게)
+            ?: ctl?.takeIf { c -> c.packageName != SPOTIFY_PKG && others.any { it.sessionToken == c.sessionToken } && c.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)?.isNotBlank() == true }
+            ?: sp.firstOrNull { it.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)?.isNotBlank() == true }
         if (pick?.sessionToken != ctl?.sessionToken) {
             ctl?.unregisterCallback(ctlCb)
             ctl = pick
