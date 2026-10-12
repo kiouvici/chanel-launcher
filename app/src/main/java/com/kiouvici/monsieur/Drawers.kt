@@ -606,7 +606,11 @@ internal fun MainActivity.showVoyageOpen(id: String) {
     col.addView(close, LinearLayout.LayoutParams(-1, dp(44f)).apply { topMargin = dp(12f) })
     root.addView(layer, FrameLayout.LayoutParams(-1, -1))
     themeOpen = layer
-    themeContent = card; motionOpen(card) { a -> layer.background?.alpha = (a * 255).toInt() }
+    // 기차표 뒤집기: 뒷면 = 라벨 (아이보리 바탕 + 남색 폴더 이름) — 90°에서 엽서로 바뀜 (샤넬팀)
+    val back = txt(shortName(repo.nameOf(id)), Style.kr(this, 500), 26f, V_INK, 0f, Gravity.CENTER).apply { setBackgroundColor(V_LABEL); visibility = View.GONE }
+    card.addView(back, FrameLayout.LayoutParams(-1, -1))
+    card.setTag(TAG_FLIP, back)
+    themeContent = card; motionOpen(card, { a -> layer.background?.alpha = (a * 255).toInt() }, if (motionMode == 0) back else null)
 }
 
 /** ⑤ CAPTION 열린 폴더: 사진 위에 제목과 앱 목록 2열 (한 화면, 넘치면 목록만 스크롤) */
@@ -639,8 +643,9 @@ internal fun MainActivity.showCaptionOpen(id: String) {
 }
 
 /** ② LIBRARY 열린 폴더: 펼친 책 두 쪽 — 왼쪽 VOL·제목·앱 수 + 앱 2열×4, 오른쪽 앱 2열×6 (한 번에 20개), 넘기기, 빨간 리본 CLOSE */
-internal fun MainActivity.showLibraryOpen(id: String, page: Int = 0) {
-    hideThemeOpen()
+internal fun MainActivity.showLibraryOpen(id: String, page: Int = 0, turnDir: Int = 0) {
+    val oldLayer = if (turnDir != 0) themeOpen else null
+    if (oldLayer != null) { themeOpen = null; themeContent = null } else hideThemeOpen()
     footVisible(false)
     cardFolder = id
     val list = repo.appsIn(id)
@@ -675,7 +680,9 @@ internal fun MainActivity.showLibraryOpen(id: String, page: Int = 0) {
     right.addView(grid(chunk.drop(8)), LinearLayout.LayoutParams(-2, -2))
     right.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
     val turn = txt(if (pages > 1) "넘기기 ›" else "", Style.kr(this, 400), 12f, ink(.55f), 0f, Gravity.END or Gravity.CENTER_VERTICAL)
-    if (pages > 1) turn.setOnClickListener { showLibraryOpen(id, (pg + 1) % pages) }
+    if (pages > 1) turn.setOnClickListener { showLibraryOpen(id, (pg + 1) % pages, 1) }
+    // 좌우로 쓸기: 넘길 쪽이 있으면 책장 넘기기, 없으면 닫기 (성훈님 결정)
+    layer.onSide = { dir -> if (pages > 1) { showLibraryOpen(id, (pg + (if (dir < 0) 1 else pages - 1)) % pages, if (dir < 0) 1 else -1); true } else false }
     right.addView(turn, LinearLayout.LayoutParams(-1, dp(44f)))
     book.addView(right, FrameLayout.LayoutParams(pageW, -1, Gravity.END))
     layer.addView(book, FrameLayout.LayoutParams(bookW, h).apply { leftMargin = dp(16f); topMargin = top })
@@ -699,7 +706,37 @@ internal fun MainActivity.showLibraryOpen(id: String, page: Int = 0) {
     layer.addView(ribbon, FrameLayout.LayoutParams(dp(120f), dp(44f), Gravity.CENTER_HORIZONTAL).apply { topMargin = top + h - dp(12f) })
     root.addView(layer, FrameLayout.LayoutParams(-1, -1))
     themeOpen = layer
-    themeContent = book; motionOpen(book) { a -> layer.background?.alpha = (a * 255).toInt() }
+    themeContent = book
+    if (oldLayer != null) {
+        // 책장 넘김: 새 쪽이 책등을 축으로 넘어와 내려앉음 + 넘어가는 면에 그늘 (종이 휘기 대신 — 샤넬팀)
+        root.removeView(oldLayer); footVisible(false)
+        if (motionMode == 0) {
+            val pageV = if (turnDir > 0) right else left
+            pageV.cameraDistance = 12000 * resources.displayMetrics.density
+            pageV.pivotX = if (turnDir > 0) 0f else pageW.toFloat(); pageV.pivotY = h / 2f
+            val shade = View(this).apply { setBackgroundColor(Color.BLACK); alpha = .25f; isClickable = false }
+            book.addView(shade, FrameLayout.LayoutParams(pageW, -1, if (turnDir > 0) Gravity.END else Gravity.START))
+            android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 600; interpolator = SpringInterp(.45f, .9f, 600)
+                addUpdateListener { val q = it.animatedValue as Float; pageV.rotationY = (if (turnDir > 0) -90f else 90f) * (1 - q); shade.alpha = .25f * (1 - q) }
+                addListener(object : android.animation.AnimatorListenerAdapter() { override fun onAnimationEnd(a: android.animation.Animator) { book.removeView(shade); pageV.rotationY = 0f } })
+                start()
+            }
+        }
+        return
+    }
+    motionOpen(book) { a -> layer.background?.alpha = (a * 255).toInt() }
+    // 펼침: 왼쪽 쪽이 책등을 축으로 90°→0° (스프링 .50 · .86)
+    if (motionMode == 0) {
+        left.cameraDistance = 12000 * resources.displayMetrics.density
+        left.post { left.pivotX = left.width.toFloat(); left.pivotY = left.height / 2f }
+        left.rotationY = 90f
+        android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 700; startDelay = 120; interpolator = SpringInterp(.5f, .86f, 700)
+            addUpdateListener { left.rotationY = 90f * (1 - it.animatedValue as Float) }
+            start()
+        }
+    }
 }
 
 internal fun MainActivity.hideThemeOpen(): Boolean {
@@ -767,6 +804,7 @@ internal fun MainActivity.showCollection() {
     collPlace = { place() }
     fun applySel() {
         if (sel == look.theme) return
+        applyBtn.buzz(if (android.os.Build.VERSION.SDK_INT >= 30) android.view.HapticFeedbackConstants.CONFIRM else android.view.HapticFeedbackConstants.CLOCK_TICK)
         applyTheme(sel); collChanged = true
         hideCollection()   // collChanged → 서랍 닫고 표지(홈)로
     }

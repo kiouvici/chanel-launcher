@@ -275,8 +275,8 @@ class MainActivity : ComponentActivity(), MediaHost {
     private fun refreshBadges() {
         badgeDirty = false
         val b = Badges.shown()
-        gridDots.forEach { (id, v) -> v.visibility = if (repo.appsIn(id).any { it.pkg in b }) View.VISIBLE else View.GONE }
-        cardDots.forEach { (pkg, vs) -> vs.forEach { it.visibility = if (pkg in b) View.VISIBLE else View.GONE } }
+        gridDots.forEach { (id, v) -> setDot(v, repo.appsIn(id).any { it.pkg in b }) }
+        cardDots.forEach { (pkg, vs) -> vs.forEach { setDot(it, pkg in b) } }
     }
 
     internal fun closeAllNow() { hideMenu(); hideSettingsSheet(); hideCollection(); hideCard(false); if (::search.isInitialized && !search.text.isNullOrEmpty()) search.setText(""); anim?.cancel(); setOpen(0f) }
@@ -307,7 +307,46 @@ class MainActivity : ComponentActivity(), MediaHost {
         }, 400)
     }
 
-    override fun onRestart() { super.onRestart(); TouchLog.mark("다른 앱에서 돌아옴") }
+    override fun onRestart() { super.onRestart(); TouchLog.mark("다른 앱에서 돌아옴"); fromApp = true }
+    private var fromApp = false
+    /** 홈 복귀 효과는 한 번에 하나만 (샤넬팀): HOUR 바늘 · CAPTION 그날 첫 현상 · 그 밖은 줌 104→100% */
+    private fun homeReturnFx() {
+        if (motionMode != 0 || openP > 0f || card.visibility == View.VISIBLE || themeOpen != null) return
+        if (cur == 0 && look.theme == Look.HOUR && themeCover.hasDial) { themeCover.sweepHands(); return }
+        if (cur == 0 && look.theme == Look.CAPTION) {
+            val cal = java.util.Calendar.getInstance(); cal.add(java.util.Calendar.HOUR_OF_DAY, -5)   // 새벽 5시 넘어 첫 홈
+            val day = cal.get(java.util.Calendar.YEAR) * 1000 + cal.get(java.util.Calendar.DAY_OF_YEAR)
+            val sp = getSharedPreferences("monsieur", MODE_PRIVATE)
+            if (sp.getInt("developDay", 0) != day) { sp.edit().putInt("developDay", day).apply(); themeCover.develop(); return }
+        }
+        val v = pages.getOrNull(cur) ?: return
+        v.pivotX = v.width / 2f; v.pivotY = v.height / 2f
+        v.scaleX = 1.04f; v.scaleY = 1.04f; v.alpha = .92f
+        v.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(600).setInterpolator(SpringInterp(.42f, .9f, 600)).start()
+    }
+    // ── 표지 사진 시차 (VOYAGE · CAPTION, 표지가 보일 때만 · 절전이면 끔) ──
+    private var tiltOn = false; private var tiltBase: FloatArray? = null; private var tiltX = 0f; private var tiltY = 0f
+    private val tiltL = object : android.hardware.SensorEventListener {
+        private val rm = FloatArray(9); private val o = FloatArray(3)
+        override fun onSensorChanged(e: android.hardware.SensorEvent) {
+            if (cur != 0 || openP > 0f) return
+            android.hardware.SensorManager.getRotationMatrixFromVector(rm, e.values); android.hardware.SensorManager.getOrientation(rm, o)
+            val b = tiltBase ?: o.copyOf().also { tiltBase = it }
+            val m = 6 * resources.displayMetrics.density
+            val tx = (-(o[2] - b[2]) / .35f).coerceIn(-1f, 1f) * m; val ty = ((o[1] - b[1]) / .35f).coerceIn(-1f, 1f) * m
+            tiltX += (tx - tiltX) * .1f; tiltY += (ty - tiltY) * .1f
+            themeCover.parallax(tiltX, tiltY)
+        }
+        override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) {}
+    }
+    private fun tilt(on: Boolean) {
+        val sm = getSystemService(SENSOR_SERVICE) as android.hardware.SensorManager
+        val want = on && motionMode == 0 && themeCover.wantsParallax && !(getSystemService(POWER_SERVICE) as android.os.PowerManager).isPowerSaveMode
+        if (want == tiltOn) return
+        tiltOn = want
+        if (want) { tiltBase = null; sm.getDefaultSensor(android.hardware.Sensor.TYPE_GAME_ROTATION_VECTOR)?.let { sm.registerListener(tiltL, it, android.hardware.SensorManager.SENSOR_DELAY_UI) } }
+        else { sm.unregisterListener(tiltL); themeCover.parallax(0f, 0f) }
+    }
     override fun onStart() { super.onStart(); TouchLog.add("onStart") }
     override fun onStop() { super.onStop(); TouchLog.add("onStop (다른 앱으로)") }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -354,6 +393,8 @@ class MainActivity : ComponentActivity(), MediaHost {
         TouchLog.add("onResume · 서랍 확인 ${android.os.SystemClock.uptimeMillis() - t0}ms")
         // 알림 점: 다른 앱에서 돌아오면 사용 기록을 읽고 폴더 점·앱 점을 함께 다시 켬 (build-38)
         Badges.syncUsage(this); refreshBadges()
+        if (fromApp) { fromApp = false; root.post { homeReturnFx() } }
+        tilt(true)
         // 권한: 이어서 켜는 중이면 다음 화면, 다 끝나면 창으로 결과 보여 줌 · 처음 한 번은 빠진 게 있으면 창을 띄움
         if (permChain) { root.postDelayed({ if (!openNextPerm()) { permChain = false; permSheet() } }, 350) }
         else if (!getSharedPreferences("monsieur", MODE_PRIVATE).getBoolean("permAsked", false) && permNeed() > 0) {
@@ -403,7 +444,7 @@ class MainActivity : ComponentActivity(), MediaHost {
 
     override fun onPause() {
         super.onPause()
-        TouchLog.add("onPause")
+        TouchLog.add("onPause"); tilt(false)
         media.setShown(false)
         CookieManager.getInstance().flush()
     }
@@ -854,6 +895,16 @@ class MainActivity : ComponentActivity(), MediaHost {
         //  로그인 창에서 키보드가 뜨면 화면 재배치 → 곧바로 키보드가 내려가는 문제가 있었음)
         if (p == 0f && wasOpen) hideKeyboard()
         if (p > 0f && !wasOpen && badgeDirty) refreshBadges()
+        // MONSIEUR: 열 때 뚜껑이 6dp 들리며 −1.5° 기울었다 내려앉고, 리본은 양옆으로 풀림 (닫을 때 다시 묶임 200ms)
+        if (look.theme == Look.MONSIEUR && ::rim.isInitialized) {
+            if (p > 0f && !wasOpen && motionMode == 0) {
+                rim.pivotX = rim.width / 2f; rim.translationY = -dpf(6f); rim.rotation = -1.5f
+                rim.animate().translationY(0f).rotation(0f).setDuration(600).setInterpolator(SpringInterp(.35f, .6f, 600)).start()
+                tab.animate().scaleX(0f).setDuration(220).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+            } else if (p == 0f && wasOpen) {
+                if (motionMode == 0) tab.animate().scaleX(1f).setDuration(200).start() else tab.scaleX = 1f
+            }
+        }
         updateBars()
     }
 
@@ -985,7 +1036,9 @@ class MainActivity : ComponentActivity(), MediaHost {
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
                 override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-                override fun afterTextChanged(s: Editable?) { onSearch(s?.toString() ?: "") }
+                // 80ms 기다렸다 찾기 (글자마다 다시 그리지 않게 · 샤넬팀)
+                private val run = Runnable { onSearch(search.text?.toString() ?: "") }
+                override fun afterTextChanged(s: Editable?) { search.removeCallbacks(run); search.postDelayed(run, if (motionMode == 0) 80 else 0) }
             })
         }
         val sWrap = FrameLayout(this)
@@ -1345,8 +1398,19 @@ class MainActivity : ComponentActivity(), MediaHost {
             "__search" -> searchList
             else -> repo.appsIn(f)
         }
+        // 검색: 맞는 앱은 제자리로 미끄러져 모이고 새로 맞은 앱은 떠오름 (FLIP · 스프링 .40 · .85)
+        val flipOld = HashMap<String, Pair<Float, Float>>()
+        if (f == "__search" && motionMode == 0) for (i in 0 until cardApps.childCount) { val c = cardApps.getChildAt(i); (c.tag as? String)?.let { flipOld[it] = c.left.toFloat() to c.top.toFloat() } }
         cardApps.removeAllViews()
         cardDots.clear()
+        if (flipOld.isNotEmpty()) cardApps.post {
+            for (i in 0 until cardApps.childCount) {
+                val c = cardApps.getChildAt(i); val o = flipOld[c.tag as? String]
+                if (o != null) { c.translationX = o.first - c.left; c.translationY = o.second - c.top
+                    c.animate().translationX(0f).translationY(0f).setDuration(560).setInterpolator(SpringInterp(.4f, .85f, 560)).start() }
+                else { c.alpha = 0f; c.scaleX = .96f; c.scaleY = .96f; c.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(220).start() }
+            }
+        }
         cardEmpty.visibility = if (list.isEmpty() && !f.startsWith("__")) View.VISIBLE else View.GONE
         val badges = Badges.shown()
         val src = if (f.startsWith("__")) null else f
@@ -1378,6 +1442,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         val cd = dot().apply { visibility = if (badge) View.VISIBLE else View.GONE }
         fr.addView(cd, FrameLayout.LayoutParams(dp(10f), dp(10f), Gravity.END or Gravity.TOP))
         cardDots.getOrPut(a.pkg) { ArrayList() }.add(cd)
+        appCellSet.add(cell); cell.tag = a.pkg
         // 표지 앱 고르기: 오른쪽 위 18dp 칸 (고른 앱은 금 바탕에 순서 숫자)
         val pf = pickFolder
         if (pf != null && src == pf) {
@@ -1423,7 +1488,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         var x0 = 0f; var y0 = 0f; var longed = false; var dragged = false; var moved = false
         val onLong = Runnable {
             longed = true
-            cell.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            cell.buzz(android.view.HapticFeedbackConstants.LONG_PRESS)
             cell.parent?.requestDisallowInterceptTouchEvent(true)
             // 길게 누르면 들어 올림 102% + 그림자 (흔들림 대신 — 샤넬팀)
             if (motionMode == 2) { iv.scaleX = 1.02f; iv.scaleY = 1.02f } else iv.animate().scaleX(1.02f).scaleY(1.02f).translationZ(dpf(8f)).setDuration(if (motionMode == 0) 420 else 120).setInterpolator(if (motionMode == 0) Springs.lift() else EASE).start()
@@ -1504,7 +1569,7 @@ class MainActivity : ComponentActivity(), MediaHost {
     }
 
     /** 카드만 닫음 (테마 화면은 그대로) */
-    private fun hideCardOnly() { if (::card.isInitialized) { card.visibility = View.GONE; cardScrim.visibility = View.GONE } }
+    private fun hideCardOnly() { if (::card.isInitialized) { card.visibility = View.GONE; cardScrim.visibility = View.GONE; blurBehind(0f) } }
 
     internal fun hideCard(animate: Boolean = true) {
         if (!::card.isInitialized) return
@@ -1521,7 +1586,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         if (animate && card.visibility == View.VISIBLE && motionMode != 2) {
             motionClose(card, { cardScrim.alpha = it }) { card.visibility = View.GONE; cardScrim.visibility = View.GONE; cardScrim.alpha = 1f }
         } else {
-            card.visibility = View.GONE
+            card.visibility = View.GONE; blurBehind(0f)
             if (::cardScrim.isInitialized) { cardScrim.visibility = View.GONE; cardScrim.alpha = 1f }
         }
     }
@@ -1604,12 +1669,22 @@ class MainActivity : ComponentActivity(), MediaHost {
         layer.addView(m, FrameLayout.LayoutParams(mw, mh).apply { leftMargin = x; topMargin = y })
         root.addView(layer, FrameLayout.LayoutParams(-1, -1))
         menuLayer = layer
-        if (!reduceMotion) { m.alpha = 0f; m.scaleX = .96f; m.scaleY = .96f; m.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(160).setInterpolator(EASE).start() }
+        when (motionMode) {
+            0 -> {
+                // 누른 자리에서 피어남 (85%→100%, 스프링 .35 · .80) + 뒤 어둡게 30% · 흐림 6dp
+                m.pivotX = (ax + anchor.width / 2f - x).coerceIn(0f, mw.toFloat()); m.pivotY = if (y < ay) mh.toFloat() else 0f
+                m.alpha = 0f; m.scaleX = .85f; m.scaleY = .85f
+                m.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(520).setInterpolator(SpringInterp(.35f, .8f, 520)).start()
+                layer.setBackgroundColor(Color.argb(77, 0, 0, 0)); layer.background.alpha = 0
+                ValueAnimator.ofInt(0, 255).apply { duration = 200; addUpdateListener { layer.background?.alpha = it.animatedValue as Int; blurBehind((it.animatedValue as Int) / 255f) }; start() }
+            }
+            1 -> { m.alpha = 0f; m.animate().alpha(1f).setDuration(150).start() }
+        }
     }
 
     private fun hideMenu(): Boolean {
         val l = menuLayer ?: return false
-        root.removeView(l); menuLayer = null; return true
+        root.removeView(l); menuLayer = null; if (themeOpen == null) blurBehind(0f); return true
     }
 
     private fun item(text: String, go: () -> Unit): Pair<String, () -> Unit> = Pair(text, go)
@@ -1843,7 +1918,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         opts.forEachIndexed { i, n ->
             val s = label(n, if (latin) Style.jost(this, 400) else Style.kr(this, 400), if (latin) 10f else 13f, Style.INK, if (latin) .2f else 0f).apply {
                 gravity = Gravity.CENTER
-                setOnClickListener { set(i); paint() }
+                setOnClickListener { if (get() != i) buzz(android.view.HapticFeedbackConstants.CLOCK_TICK); set(i); paint() }
             }
             segs += s
             ir.addView(s, LinearLayout.LayoutParams(dp(w), dp(44f)).apply { if (i > 0) leftMargin = dp(8f) })
