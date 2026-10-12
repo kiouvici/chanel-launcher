@@ -70,4 +70,13 @@ adb shell am start -a android.settings.SETTINGS; sleep 3
 adb shell input keyevent KEYCODE_HOME; sleep 3
 adb shell am start -a android.settings.SETTINGS; sleep 3
 adb shell input keyevent KEYCODE_HOME; sleep 3
+for st in 0 1 2 3 4; do
+  adb shell am start -n $A --ei theme 1 --ei libstyle $st --ei page 0 --ez drawer true; sleep 4
+  adb exec-out screencap -p > shots/lib${st}_drawer.png
+  adb shell am start -n $A --ei page 0 --ez drawer true --ei folder 15; sleep 4
+  adb exec-out screencap -p > shots/lib${st}_open.png
+  adb shell input keyevent KEYCODE_BACK; sleep 1
+done
+adb shell am start -n $A --ei libstyle 1 --es sheet settings; sleep 4
+adb exec-out screencap -p > shots/s_settings_lib.png
 adb logcat -d -s AndroidRuntime:E MNS:D > shots/crash.txt || true

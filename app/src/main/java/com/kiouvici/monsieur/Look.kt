@@ -19,12 +19,16 @@ class Look(ctx: Context) {
     }
 
     private val p = ctx.getSharedPreferences("monsieur", Context.MODE_PRIVATE)
-    init { Dk.lib = libDark; Dk.voy = voyDark }
+    init { Dk.libStyle = libStyle; Dk.lib = libStyle != 0; Dk.voy = voyDark }
 
     /** LIBRARY · VOYAGE 바탕: true 블랙(기본) · false 밝게 */
     var libDark: Boolean
-        get() = p.getBoolean("libDark", true)
-        set(v) { p.edit().putBoolean("libDark", v).apply(); Dk.lib = v }
+        get() = libStyle != 0
+        set(v) { libStyle = if (v) 1 else 0 }
+    /** LIBRARY 바탕 0 밝게 · 1 전부 검정 · 2 아이보리 원고지 · 3 작은 종이 · 4 낮춘 종이 (예전 '밝게' 고른 사람은 0) */
+    var libStyle: Int
+        get() = p.getInt("libStyle", if (p.getBoolean("libDark", true)) 1 else 0).coerceIn(0, 4)
+        set(v) { p.edit().putInt("libStyle", v).apply(); Dk.libStyle = v; Dk.lib = v != 0 }
     var voyDark: Boolean
         get() = p.getBoolean("voyDark", true)
         set(v) { p.edit().putBoolean("voyDark", v).apply(); Dk.voy = v }

@@ -161,8 +161,8 @@ internal fun MainActivity.buildStage() {
                 vertical = look.libOrder == 0; rows = maxOf(15, (folders.size + 1) / 2)
             }
             ms.measureFor(W, H)
-            val needH = ((ms.rows * 44f + (if (Dk.lib) 30f else 18f)) * ms.u).roundToInt()
-            stageIn.addView(ms, FrameLayout.LayoutParams(W, maxOf(H, needH)))
+            val needH = ((ms.rows * 44f + when (Dk.libStyle) { 4 -> 30f; 2, 3 -> 26f; else -> 18f }) * ms.u).roundToInt()
+            stageIn.addView(ms, FrameLayout.LayoutParams(W, if (Dk.libStyle == 3) H else maxOf(H, needH)))
             var waiting = 0
             folders.forEachIndexed { i, id ->
                 val (r, side) = ms.slot(i)
@@ -181,7 +181,7 @@ internal fun MainActivity.buildStage() {
                 val len = names[i].take(7).length
                 val cx = if (len < 7) ms.cellLeft(side) + (25 * len + 12.5f) * ms.u else if (side == 0) ms.ox + 190f * ms.u else ms.ox + 383f * ms.u
                 val sz = (10f * ms.u).roundToInt()
-                val d = View(this).apply { background = shape(M_RED, oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
+                val d = View(this).apply { background = shape(if (Dk.inkPage) Dk.LIB_DOT else M_RED, oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
                 stageIn.addView(d, FrameLayout.LayoutParams(sz, sz).apply { leftMargin = (cx - sz / 2f).roundToInt(); topMargin = (ms.charTop(r) + 12.5f * ms.u - sz / 2f).roundToInt() })
                 gridDots[id] = d
             }
@@ -191,7 +191,7 @@ internal fun MainActivity.buildStage() {
                 1 -> "One of them is waiting."
                 else -> "${cap(Words.num(waiting))} of them are waiting."
             }
-            contentH = maxOf(H, needH)
+            contentH = if (Dk.libStyle == 3) H else maxOf(H, needH)
         }
         Look.HOUR -> {
             // H3: 세라믹 판 + 창 3열 (이름 13sp, 6자 이상 12sp)
@@ -510,19 +510,20 @@ internal fun MainActivity.cardTopFor(t: Int): Int {
 
 /** LIBRARY 카드 바탕: 펼친 두 쪽 (가운데 접힘 그늘) */
 class BookSpread(private val ctx: Context) : android.graphics.drawable.Drawable() {
-    private val paper: android.graphics.drawable.Drawable = Style.tile(ctx, Style.PAPER, 256f)
+    private val paper: android.graphics.drawable.Drawable = if (Dk.inkPage) android.graphics.drawable.ColorDrawable(Dk.LIB_PAGE) else Style.tile(ctx, Style.PAPER, 256f)
     private val p = Paint()
     override fun draw(c: Canvas) {
         val b = bounds
         paper.bounds = b; paper.draw(c)
-        val mid = b.exactCenterX(); val gw = ctx.dpf(18f)
-        val fold = 64
+        val mid = b.exactCenterX(); val gw = ctx.dpf(if (Dk.inkPage) 12f else 18f)
+        val fold = if (Dk.inkPage) 140 else 64   // 검정 책: 접힌 곳 그늘 55%
         p.shader = android.graphics.LinearGradient(mid - gw, 0f, mid, 0f, Color.TRANSPARENT, Color.argb(fold, 0, 0, 0), android.graphics.Shader.TileMode.CLAMP)
         c.drawRect(mid - gw, b.top.toFloat(), mid, b.bottom.toFloat(), p)
         p.shader = android.graphics.LinearGradient(mid, 0f, mid + gw, 0f, Color.argb(fold, 0, 0, 0), Color.TRANSPARENT, android.graphics.Shader.TileMode.CLAMP)
         c.drawRect(mid, b.top.toFloat(), mid + gw, b.bottom.toFloat(), p)
         p.shader = null; p.color = Color.argb(40, 0, 0, 0); c.drawRect(mid - .5f, b.top.toFloat(), mid + .5f, b.bottom.toFloat(), p)
-        if (Dk.lib) {   // 시안 D: 원고지와 같은 낮춘 종이 색 + 테두리
+        if (Dk.inkPage) { p.style = Paint.Style.STROKE; p.strokeWidth = ctx.dpf(1f); p.color = Color.argb(31, 237, 230, 216); c.drawRect(b.left + .5f, b.top + .5f, b.right - .5f, b.bottom - .5f, p); p.style = Paint.Style.FILL }
+        if (Dk.libStyle == 4) {   // D: 원고지와 같은 낮춘 종이 색 + 테두리
             p.color = Color.argb(36, 30, 26, 20); c.drawRect(b, p)
             p.style = Paint.Style.STROKE; p.strokeWidth = ctx.dpf(1.5f); p.color = Color.argb(140, 0, 0, 0); c.drawRect(b.left + .75f, b.top + .75f, b.right - .75f, b.bottom - .75f, p); p.style = Paint.Style.FILL
         }
@@ -594,7 +595,7 @@ internal fun MainActivity.showVoyageOpen(id: String) {
     col.addView(txt(shortName(repo.nameOf(id)), Style.kr(this, 300), 26f, V_INK).apply { maxLines = 1 }, LinearLayout.LayoutParams((240 * sx).roundToInt(), -2).apply { topMargin = dp(6f) })
     val grid = GridLayout(this).apply { columnCount = 5 }
     val cw = (cardW - dp(44f)) / 5
-    list.forEach { a -> grid.addView(appCell(a, a.pkg in BadgeService.active, id), GridLayout.LayoutParams().apply { width = cw }) }
+    list.forEach { a -> grid.addView(appCell(a, a.pkg in BadgeService.active, id, onDark = Dk.inkPage), GridLayout.LayoutParams().apply { width = cw }) }
     val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; addView(grid) }
     col.addView(sv, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = (h * .07f).roundToInt() })
     if (list.isEmpty()) col.addView(txt("비어 있습니다 · 다른 폴더의 앱을 길게 눌러 끌어 오세요", Style.kr(this, 300), 12f, tint(.7f, V_INK)), LinearLayout.LayoutParams(-1, -2))
@@ -646,7 +647,7 @@ internal fun MainActivity.showLibraryOpen(id: String, page: Int = 0) {
     val layer = FrameLayout(this).apply { elevation = dpf(24f); isClickable = true }
     layer.addView(View(this).apply { setBackgroundColor(if (Dk.lib) Color.argb(140, 0, 0, 0) else Color.argb(72, 60, 42, 22)); setOnClickListener { hideCard() } }, FrameLayout.LayoutParams(-1, -1))
     val L = Lay(this, layer, root.width, root.height)
-    fun ink(a: Float) = tint(a, Style.INK)   // 열린 책은 블랙에서도 아이보리 종이 (샤넬팀 6:1)
+    fun ink(a: Float) = if (Dk.inkPage) Dk.li(a) else tint(a, Style.INK)   // 종이 안(A·C·D·밝게)은 먹 글자, 검정 책(B)은 아이보리
     val bookW = root.width - dp(32f)
     val pageW = bookW / 2
     val top = maxOf(sbTop + dp(48f), L.y(230f))

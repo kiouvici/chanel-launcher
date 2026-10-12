@@ -146,6 +146,9 @@ class MainActivity : ComponentActivity(), MediaHost {
     internal var collection: View? = null
     internal var collPlace: (() -> Unit)? = null
     internal var collChanged = false
+    /** LIBRARY 바탕 5가지 (설정 줄 표시 · 고르기 목록) */
+    private val LIB_STYLES = listOf("밝게" to "밝게 · 아이보리 종이 바탕 (예전)", "검정" to "블랙 · 원고지도 검정", "아이보리 종이" to "블랙 + 아이보리 원고지 (A)",
+        "작은 종이" to "블랙 + 작은 원고지 · 먹지 여백 넉넉 (C)", "낮춘 종이" to "블랙 + 색 낮춘 종이 · 테두리 (D)")
 
     private var openP = 0f          // 0 닫힘 ~ 1 열림
     private var boxH = 0
@@ -282,6 +285,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         val pg = i.getIntExtra("page", -1)
         if (pg in 0..3) { closeAllNow(); goPage(pg, false) }
         if (i.hasExtra("demo")) media.demo = i.getIntExtra("demo", 0)
+        if (i.hasExtra("libstyle")) { look.libStyle = i.getIntExtra("libstyle", 1); applyTheme(look.theme) }
         when (i.getStringExtra("sheet")) {
             "dial" -> root.postDelayed({ setOpen(1f); choiceSheet(0) }, 400)
             "sound" -> root.postDelayed({ soundSheet(i.getIntExtra("demo", 1) - 1, H_GOLD) {} }, 400)
@@ -298,7 +302,7 @@ class MainActivity : ComponentActivity(), MediaHost {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.hasExtra("theme") || intent.hasExtra("page") || intent.hasExtra("drawer") || intent.hasExtra("sheet") || intent.hasExtra("demo")) { root.postDelayed({ shotIntent(intent) }, 300); return }
+        if (intent.hasExtra("theme") || intent.hasExtra("page") || intent.hasExtra("drawer") || intent.hasExtra("sheet") || intent.hasExtra("demo") || intent.hasExtra("libstyle")) { root.postDelayed({ shotIntent(intent) }, 300); return }
         // 홈 버튼: 열린 것만 닫는다 (서랍은 끌어올리기로만 연다 — 성훈님 결정)
         if (Intent.ACTION_MAIN == intent.action) {
             val t0 = android.os.SystemClock.uptimeMillis()
@@ -997,7 +1001,7 @@ class MainActivity : ComponentActivity(), MediaHost {
     internal fun stageSig(): String {
         if (!::stage.isInitialized) return ""
         val f = repo.folders()
-        return listOf(look.theme, Dk.lib, Dk.voy, look.libOrder, look.folderScale, repo.iconMode, stage.width, stage.height,
+        return listOf(look.theme, Dk.libStyle, Dk.voy, look.libOrder, look.folderScale, repo.iconMode, stage.width, stage.height,
             f.joinToString(",") { it + ":" + repo.nameOf(it) + ":" + repo.appsIn(it).size }, repo.favorites().sorted().joinToString(","),
             repo.unassigned().size, search.text?.toString() ?: "").joinToString("|")
     }
@@ -1645,7 +1649,11 @@ class MainActivity : ComponentActivity(), MediaHost {
                     row("바탕 · THE VOYAGE", if (look.voyDark) "블랙" else "밝게", true) { look.voyDark = !look.voyDark; applyTheme(look.theme) }; line() }
                 Look.HOUR -> { row("시계 문자판 · THE HOUR", if (look.hourDial == 0) "NOIR" else "IVOIRE", true) { choiceSheet(0) }; line() }
                 Look.LIBRARY -> { row("원고지 순서 · THE LIBRARY", if (look.libOrder == 0) "세로" else "가로", true) { choiceSheet(1) }; line()
-                    row("바탕 · THE LIBRARY", if (look.libDark) "블랙" else "밝게", true) { look.libDark = !look.libDark; applyTheme(look.theme) }; line() }
+                    row("바탕 · THE LIBRARY", LIB_STYLES[look.libStyle].first, true) {
+                        val items = LIB_STYLES.map { it.second }
+                        pickSheet("THE LIBRARY · 바탕", items, items[look.libStyle], "서랍의 원고지와 펼친 책 모양이 바뀝니다. 표지와 음악 화면은 '밝게'만 아이보리, 나머지는 먹지입니다.") { pick ->
+                            look.libStyle = items.indexOf(pick).coerceAtLeast(0); applyTheme(look.theme) }
+                    }; line() }
             }
             row("HA 연결 · 미디어", if (look.haToken.isBlank()) "연결 안 됨" else "토큰 있음", true) { tokenSheet() }; line()
             FineVol.init(getSystemService(AUDIO_SERVICE) as android.media.AudioManager)
