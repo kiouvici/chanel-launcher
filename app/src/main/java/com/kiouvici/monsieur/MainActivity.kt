@@ -272,7 +272,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         cardDots.forEach { (pkg, vs) -> vs.forEach { it.visibility = if (pkg in b) View.VISIBLE else View.GONE } }
     }
 
-    internal fun closeAllNow() { hideMenu(); hideSettingsSheet(); hideCollection(); hideCard(); if (::search.isInitialized) search.setText(""); anim?.cancel(); setOpen(0f) }
+    internal fun closeAllNow() { hideMenu(); hideSettingsSheet(); hideCollection(); hideCard(); if (::search.isInitialized && !search.text.isNullOrEmpty()) search.setText(""); anim?.cancel(); setOpen(0f) }
 
     /** 화면 점검용 (adb am start --ei theme 0~4 --ei page 0~3 --ez drawer true --ei folder n) — 사람이 누를 일은 없음 */
     private fun shotIntent(i: Intent?) {
@@ -301,9 +301,11 @@ class MainActivity : ComponentActivity(), MediaHost {
         if (intent.hasExtra("theme") || intent.hasExtra("page") || intent.hasExtra("drawer") || intent.hasExtra("sheet") || intent.hasExtra("demo")) { root.postDelayed({ shotIntent(intent) }, 300); return }
         // 홈 버튼: 열린 것만 닫는다 (서랍은 끌어올리기로만 연다 — 성훈님 결정)
         if (Intent.ACTION_MAIN == intent.action) {
+            val t0 = android.os.SystemClock.uptimeMillis()
             val wasClosed = openP == 0f && card.visibility != View.VISIBLE
             closeAll()
             if (wasClosed) goPage(0) // 홈 버튼 = 표지
+            android.util.Log.d("MNS", "home intent ${android.os.SystemClock.uptimeMillis() - t0}ms")
         }
     }
 
@@ -821,7 +823,8 @@ class MainActivity : ComponentActivity(), MediaHost {
         hideCollection()
         hideSettingsSheet()
         hideCard()
-        search.setText("")
+        // 빈 검색칸에 다시 빈 글자를 넣으면 서랍 전체를 다시 그려(약 1초) 홈에서 터치가 늦던 진짜 원인 — 글자가 있을 때만 비움
+        if (!search.text.isNullOrEmpty()) search.setText("")
         animateOpen(0f)
     }
 
@@ -1264,7 +1267,7 @@ class MainActivity : ComponentActivity(), MediaHost {
 
     private var searchList: List<AppEntry> = emptyList()
     private fun onSearch(q: String) {
-        refreshGrid()
+        if (stageSig() != builtSig) refreshGrid()
         if (q.isBlank()) { if (cardFolder == "__search") hideCard(); return }
         searchList = repo.search(q)
         hideThemeOpen(); skinCard(Look.MONSIEUR)
