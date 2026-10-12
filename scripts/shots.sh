@@ -44,15 +44,19 @@ adb shell am start -n $A --ei page 0 --es sheet collection; sleep 4
 adb exec-out screencap -p > shots/s_collection.png
 adb logcat -d -s AndroidRuntime:E MNS:D > shots/crash.txt || true
 # 손동작 점검: 표지에서 짧게 위로 → 서랍 · 서랍 맨 위 빈자리에서 아래로 → 닫힘 · 표지 왼쪽/오른쪽 아래로 → 알림/빠른 설정
-adb shell am start -n $A --ei theme 0 --ei page 0; sleep 4
-adb shell input swipe 540 1700 540 1450 120; sleep 2
+adb shell am start -n $A --ei theme 0 --ei page 0; sleep 6
+adb shell input swipe 540 1900 540 1650 150; sleep 2
 adb exec-out screencap -p > shots/g1_open_short.png
-adb shell input swipe 540 120 540 900 200; sleep 2
+adb shell input swipe 540 330 540 1000 200; sleep 2
 adb exec-out screencap -p > shots/g2_close_top.png
 adb shell input swipe 250 900 250 1500 200; sleep 2
 adb exec-out screencap -p > shots/g3_shade_left.png
-adb shell cmd statusbar collapse; sleep 1
+adb shell cmd statusbar collapse; sleep 2
 adb shell input swipe 850 900 850 1500 200; sleep 2
 adb exec-out screencap -p > shots/g4_shade_right.png
+adb shell cmd statusbar collapse; sleep 1
+adb shell am start -n $A --ei page 2; sleep 6
+adb shell input swipe 540 1200 540 1800 200; sleep 2
+adb exec-out screencap -p > shots/g5_ha_mid.png
 adb shell cmd statusbar collapse; sleep 1
 adb logcat -d -s AndroidRuntime:E MNS:D > shots/crash.txt || true
