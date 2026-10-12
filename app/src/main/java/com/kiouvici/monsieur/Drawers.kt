@@ -142,7 +142,9 @@ internal fun MainActivity.updateThemeClock() {
 // ═════════ 폴더 30개 깔기 ═════════
 internal fun MainActivity.buildStage() {
     val W = stage.width.takeIf { it > 0 } ?: return
-    val H = stage.height.takeIf { it > 0 } ?: return
+    val H0 = stage.height.takeIf { it > 0 } ?: return
+    // 키보드가 떠 있으면 키보드 없을 때 높이로 그림 (목록은 스크롤) — 칸이 눌려 폴더 이름이 아이콘과 겹치던 것
+    val H = if (imeUp && fullStageH > H0) fullStageH else H0.also { if (!imeUp) fullStageH = it }
     stageIn.removeAllViews(); gridDots.clear(); hourCenter = null; stageIn.background = null
     val folders = repo.folders()
     val favs = repo.favorites()

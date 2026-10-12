@@ -106,6 +106,8 @@ class MainActivity : ComponentActivity(), MediaHost {
     internal var sbTop = 0           // 상태바 높이
     internal var navBot = 0          // 아래 시스템 제스처 영역 높이
     private var imeBot = 0          // 키보드 높이 (이름 바꾸기 시트를 키보드 위로)
+    internal val imeUp get() = imeBot > navBot + dp(40f)
+    internal var fullStageH = 0     // 키보드 없을 때 서랍 높이 — 검색 중 키보드 때문에 칸이 눌려 이름이 아이콘과 겹치던 것 (build-42)
     private var loginLayer: FrameLayout? = null
     private var lastLogin = 0L
     internal lateinit var box: FrameLayout
@@ -434,6 +436,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         // 서랍은 화면 전체 (테마마다 위쪽을 직접 꾸밈 — MONSIEUR는 뚜껑 띠)
         boxH = root.height
         (box.layoutParams as FrameLayout.LayoutParams).apply { height = boxH + dp(48f); topMargin = 0 }   // 아래 48dp 여유: 스프링으로 살짝 넘칠 때 빈 곳이 안 보이게
+        box.setPadding(0, 0, 0, dp(48f))   // 내용은 화면 안에 (48dp 늘린 만큼 아래 설정 줄이 화면 밖으로 밀려 사라지던 것 — build-42)
         box.requestLayout()
         themeCover.sbTop = sbTop; themeCover.navBot = navBot
         layoutCover()
@@ -902,8 +905,10 @@ class MainActivity : ComponentActivity(), MediaHost {
         if (look.theme == Look.MONSIEUR && ::rim.isInitialized && motionMode == 0) {
             if (p >= .7f && !ribbonUntied && openP >= prevP) { ribbonUntied = true; untieRibbon() }
             if (p >= 1f && prevP < 1f) {
-                rim.pivotX = rim.width / 2f; rim.translationY = -dpf(12f); rim.rotation = -3f
-                rim.animate().translationY(0f).rotation(0f).setDuration(800).setInterpolator(SpringInterp(.42f, .45f, 800)).start()
+                // 뚜껑: 기울이면 화면 끝까지 긴 선이 비스듬해져 깨져 보여서(영상) — 기울임 없이 8dp 들렸다 출렁이며 내려앉음
+                rim.translationY = -dpf(8f); rimShade.translationY = -dpf(8f)
+                rim.animate().translationY(0f).setDuration(800).setInterpolator(SpringInterp(.42f, .5f, 800)).start()
+                rimShade.animate().translationY(0f).setDuration(800).setInterpolator(SpringInterp(.42f, .5f, 800)).start()
             }
             if (p < prevP && ribbonUntied && p < .98f) { ribbonUntied = false; tieRibbon() }
         } else if (::tab.isInitialized && (p == 0f || motionMode != 0)) { ribbonUntied = false; tab.alpha = 1f; tab.scaleX = 1f; ribbonHalves?.forEach { box.removeView(it) }; ribbonHalves = null }
@@ -922,7 +927,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         if (w == 0) return
         val halves = (0..1).map { i ->
             ImageView(this).apply {
-                setImageDrawable(tab.drawable); scaleType = ImageView.ScaleType.FIT_XY; elevation = tab.elevation
+                setImageDrawable(tab.drawable); scaleType = ImageView.ScaleType.FIT_XY; elevation = 0f; outlineProvider = null   // 그림자 상자가 회색 네모로 보이던 것
                 clipBounds = android.graphics.Rect(if (i == 0) 0 else w / 2, 0, if (i == 0) w / 2 else w, h)
                 box.addView(this, FrameLayout.LayoutParams(w, h, Gravity.CENTER_HORIZONTAL).apply { topMargin = lp.topMargin })
             }
@@ -931,8 +936,8 @@ class MainActivity : ComponentActivity(), MediaHost {
         halves.forEachIndexed { i, v ->
             val dir = if (i == 0) -1f else 1f
             v.pivotX = if (i == 0) w / 2f else w / 2f
-            v.animate().translationX(dir * dpf(40f)).translationY(dpf(6f)).rotation(dir * 18f).alpha(0f)
-                .setDuration(520).setInterpolator(android.view.animation.DecelerateInterpolator(1.6f)).start()
+            v.animate().translationX(dir * dpf(28f)).rotation(dir * 8f).alpha(0f)
+                .setDuration(600).setInterpolator(android.view.animation.DecelerateInterpolator(1.6f)).start()
         }
     }
     /** 리본 다시 묶기: 두 조각이 가운데로 모여 하나가 됨 (0.3초) */
@@ -1414,6 +1419,10 @@ class MainActivity : ComponentActivity(), MediaHost {
 
     private var searchList: List<AppEntry> = emptyList()
     private fun onSearch(q: String) {
+        // 검색 카드는 검색줄에서 피어남 (지난번 누른 폴더 자리에서 커져 처음에 튀어 보이던 것)
+        if (q.isNotBlank() && (cardFolder != "__search" || card.visibility != View.VISIBLE) && ::search.isInitialized) {
+            val loc = IntArray(2); search.getLocationInWindow(loc); lastTap = android.graphics.Rect(loc[0], loc[1], loc[0] + search.width, loc[1] + search.height)
+        }
         if (stageSig() != builtSig) refreshGrid()
         if (q.isBlank()) { if (cardFolder == "__search") hideCard(); return }
         searchList = repo.search(q)
@@ -1547,6 +1556,7 @@ class MainActivity : ComponentActivity(), MediaHost {
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     x0 = e.rawX; y0 = e.rawY; longed = false; dragged = false; moved = false
+                    TouchLog.add("앱칸 ↓ ${a.label}")
                     cell.postDelayed(onLong, longTime); true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -1568,6 +1578,7 @@ class MainActivity : ComponentActivity(), MediaHost {
                     true
                 }
                 MotionEvent.ACTION_UP -> {
+                    TouchLog.add("앱칸 ↑ ${a.label} 길게=$longed 움직임=$moved")
                     cell.removeCallbacks(onLong)
                     iv.animate().scaleX(1f).scaleY(1f).translationZ(0f).setDuration(120).start()
                     when {
@@ -1577,7 +1588,8 @@ class MainActivity : ComponentActivity(), MediaHost {
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
-                    cell.removeCallbacks(onLong); iv.scaleX = 1f; iv.scaleY = 1f; true
+                    TouchLog.add("앱칸 취소 ${a.label} (목록이 가져감)")
+                    cell.removeCallbacks(onLong); iv.scaleX = 1f; iv.scaleY = 1f; iv.translationZ = 0f; true
                 }
                 else -> true
             }

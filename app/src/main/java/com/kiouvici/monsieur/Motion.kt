@@ -179,6 +179,7 @@ internal fun MainActivity.motionClose(content: View, scrim: ((Float) -> Unit)?, 
 /** 뒤(서랍) 흐림 6px — 안드로이드 12 이상 */
 internal fun MainActivity.blurBehind(p: Float) {
     if (android.os.Build.VERSION.SDK_INT < 31 || motionMode != 0) return
+    if (p > 0f && cardFolder == "__search") return   // 검색 중엔 흐림 없이 (키보드와 함께 버벅이던 것)
     val r = 6f * resources.displayMetrics.density * p
     try { box.setRenderEffect(if (r < .5f) null else android.graphics.RenderEffect.createBlurEffect(r, r, android.graphics.Shader.TileMode.CLAMP)) } catch (_: Exception) {}
 }
@@ -331,25 +332,38 @@ internal fun View.hap(kind: Int) = Hap.play(this, kind)
  * 놓으면 스프링(.40 · 1.0)으로 돌아옴. D = 220dp. 부드럽게일 때만.
  */
 class RubberScroll(ctx: android.content.Context, private val allowTop: Boolean = true, private val on: () -> Boolean) : android.widget.ScrollView(ctx) {
+    // build-42: 누르기·길게 누르기를 절대 가로채지 않게 — 세로로 16dp 넘게 끌고, 그 방향 끝일 때만 고무줄 시작
+    // (예전엔 손가락이 조금만 흔들려도 목록이 터치를 가져가 앱이 안 눌리고 목록만 출렁이던 것 — 성훈님 영상)
     private val dd = 220 * ctx.resources.displayMetrics.density
-    private var lastY = 0f; private var raw = 0f; private var rubbering = false
+    private val startPx = 16 * ctx.resources.displayMetrics.density
+    private var y0 = 0f; private var lastY = 0f; private var raw = 0f; private var rubbering = false
     private var back: ValueAnimator? = null
     private fun rb(x: Float): Float { val a = kotlin.math.abs(x); return Math.signum(x) * (1 - 1 / (a * .55f / dd + 1)) * dd }
     private fun child() = if (childCount > 0) getChildAt(0) else null
+    private fun atEdge(dy: Float) = (dy > 0 && allowTop && !canScrollVertically(-1)) || (dy < 0 && !canScrollVertically(1))
+    override fun onInterceptTouchEvent(e: android.view.MotionEvent): Boolean {
+        when (e.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> { y0 = e.y; lastY = e.y; raw = 0f; rubbering = false }
+            android.view.MotionEvent.ACTION_MOVE -> if (on() && !rubbering) {
+                val dy = e.y - y0
+                if (kotlin.math.abs(dy) > startPx && atEdge(dy)) { rubbering = true; lastY = e.y; raw = 0f; back?.cancel(); TouchLog.add("고무줄 시작"); return true }
+            }
+        }
+        return super.onInterceptTouchEvent(e)
+    }
     @android.annotation.SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: android.view.MotionEvent): Boolean {
         if (!on()) return super.onTouchEvent(e)
         when (e.actionMasked) {
-            android.view.MotionEvent.ACTION_DOWN -> { lastY = e.y; raw = 0f; rubbering = false; back?.cancel(); child()?.translationY = 0f }
+            android.view.MotionEvent.ACTION_DOWN -> { y0 = e.y; lastY = e.y }
             android.view.MotionEvent.ACTION_MOVE -> {
-                val dy = e.y - lastY; lastY = e.y
-                val atTop = !canScrollVertically(-1); val atBottom = !canScrollVertically(1)
-                if (rubbering || (allowTop && atTop && dy > 0) || (atBottom && dy < 0)) {
+                val dy = e.y - lastY
+                if (!rubbering && kotlin.math.abs(e.y - y0) > startPx && atEdge(dy)) { rubbering = true; raw = 0f; back?.cancel() }   // 스크롤하다 끝에 닿으면 이어서 늘어남
+                lastY = e.y
+                if (rubbering) {
                     val was = raw; raw += dy
                     if (was != 0f && Math.signum(raw) != Math.signum(was)) { raw = 0f; rubbering = false; child()?.translationY = 0f; return super.onTouchEvent(e) }
-                    rubbering = raw != 0f
-                    child()?.translationY = rb(raw)
-                    return true
+                    child()?.translationY = rb(raw); return true
                 }
             }
             android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> if (rubbering) {
@@ -359,6 +373,7 @@ class RubberScroll(ctx: android.content.Context, private val allowTop: Boolean =
                     addUpdateListener { c?.translationY = it.animatedValue as Float }; start()
                 }
                 raw = 0f
+                super.onTouchEvent(android.view.MotionEvent.obtain(e).apply { action = android.view.MotionEvent.ACTION_CANCEL })   // 목록 상태 정리
                 return true
             }
         }
