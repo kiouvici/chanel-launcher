@@ -161,8 +161,8 @@ internal fun MainActivity.buildStage() {
                 vertical = look.libOrder == 0; rows = maxOf(15, (folders.size + 1) / 2)
             }
             ms.measureFor(W, H)
-            val needH = ((ms.rows * 44f + (if (Dk.lib) 26f else 18f)) * ms.u).roundToInt()
-            stageIn.addView(ms, FrameLayout.LayoutParams(W, if (Dk.lib) H else maxOf(H, needH)))
+            val needH = ((ms.rows * 44f + (if (Dk.lib) 30f else 18f)) * ms.u).roundToInt()
+            stageIn.addView(ms, FrameLayout.LayoutParams(W, maxOf(H, needH)))
             var waiting = 0
             folders.forEachIndexed { i, id ->
                 val (r, side) = ms.slot(i)
@@ -191,7 +191,7 @@ internal fun MainActivity.buildStage() {
                 1 -> "One of them is waiting."
                 else -> "${cap(Words.num(waiting))} of them are waiting."
             }
-            contentH = if (Dk.lib) H else maxOf(H, needH)
+            contentH = maxOf(H, needH)
         }
         Look.HOUR -> {
             // H3: 세라믹 판 + 창 3열 (이름 13sp, 6자 이상 12sp)
@@ -522,6 +522,10 @@ class BookSpread(private val ctx: Context) : android.graphics.drawable.Drawable(
         p.shader = android.graphics.LinearGradient(mid, 0f, mid + gw, 0f, Color.argb(fold, 0, 0, 0), Color.TRANSPARENT, android.graphics.Shader.TileMode.CLAMP)
         c.drawRect(mid, b.top.toFloat(), mid + gw, b.bottom.toFloat(), p)
         p.shader = null; p.color = Color.argb(40, 0, 0, 0); c.drawRect(mid - .5f, b.top.toFloat(), mid + .5f, b.bottom.toFloat(), p)
+        if (Dk.lib) {   // 시안 D: 원고지와 같은 낮춘 종이 색 + 테두리
+            p.color = Color.argb(36, 30, 26, 20); c.drawRect(b, p)
+            p.style = Paint.Style.STROKE; p.strokeWidth = ctx.dpf(1.5f); p.color = Color.argb(140, 0, 0, 0); c.drawRect(b.left + .75f, b.top + .75f, b.right - .75f, b.bottom - .75f, p); p.style = Paint.Style.FILL
+        }
 
     }
     override fun setAlpha(alpha: Int) {}

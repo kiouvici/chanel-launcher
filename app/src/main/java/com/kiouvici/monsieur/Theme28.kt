@@ -295,11 +295,10 @@ class Manuscript(ctx: Context) : View(ctx) {
     private val tp = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
 
     fun measureFor(w: Int, h: Int) {
-        // 블랙: 아트디렉터 보완안 — 종이를 줄여 둘레에 먹지 여백을 넉넉히 (검은 책상 위 종이 한 장)
-        val extra = if (Dk.lib) 26f else 18f
-        val wk = if (Dk.lib) .86f else 1f
-        u = minOf(w * wk / 392f, h * wk / (rows * 44f + extra))
-        ox = (w - 380 * u) / 2f; oy = if (Dk.lib) (h - (rows * 44 + 8) * u) / 2f else 5 * u
+        // 블랙(시안 D): A 크기 그대로 + 종이 색 낮추기 + 테두리·그림자 더하기
+        val extra = if (Dk.lib) 30f else 18f
+        u = minOf(w / 396f, h / (rows * 44f + extra))
+        ox = (w - 380 * u) / 2f; oy = (if (Dk.lib) 11 else 5) * u
     }
     /** 폴더 i의 줄·쪽(0 왼쪽 1 오른쪽) */
     fun slot(i: Int): Pair<Int, Int> = if (vertical) (i % rows) to (i / rows) else (i / 2) to (i % 2)
@@ -316,13 +315,18 @@ class Manuscript(ctx: Context) : View(ctx) {
         val L = ox; val R = ox + 380 * u; val T = oy; val B = oy + (rows * 44 + 8) * u
         // 블랙 바탕: 먹지 위에 아이보리 원고지 종이 한 장 (그림자 · 가는 가장자리) — 샤넬팀 6:1
         if (Dk.lib) {
-            val pr = RectF(L - 10 * u, T - 12 * u, R + 10 * u, B + 12 * u)
+            val pr = RectF(L - 7 * u, T - 8 * u, R + 7 * u, B + 8 * u)
             p.style = Paint.Style.FILL; p.shader = null
-            p.color = 0xFFF3EEE3.toInt(); p.setShadowLayer(22 * u, 0f, 8 * u, Color.argb(150, 0, 0, 0)); c.drawRect(pr, p); p.clearShadowLayer()
+            p.color = 0xFFF3EEE3.toInt(); p.setShadowLayer(26 * u, 0f, 10 * u, Color.argb(200, 0, 0, 0)); c.drawRect(pr, p); p.clearShadowLayer()
             p.shader = BitmapShader(Style.img(context, Style.PAPER), Shader.TileMode.REPEAT, Shader.TileMode.REPEAT).apply {
                 setLocalMatrix(android.graphics.Matrix().apply { val k = 300f * resources.displayMetrics.density / Style.img(context, Style.PAPER).width; setScale(k, k) }) }
             c.drawRect(pr, p); p.shader = null
-            p.style = Paint.Style.STROKE; p.strokeWidth = resources.displayMetrics.density; p.color = Color.argb(26, 0, 0, 0); c.drawRect(pr, p)
+            // 종이 색 낮추기: 먹 14%를 덮어 회색빛 아이보리 (눈부심 줄임)
+            p.color = Color.argb(36, 30, 26, 20); c.drawRect(pr, p)
+            // 테두리: 바깥 먹선 1.5dp + 안쪽 아이보리 하이라이트 (올려놓은 종이 한 장)
+            val dd = resources.displayMetrics.density
+            p.style = Paint.Style.STROKE; p.strokeWidth = 1.5f * dd; p.color = Color.argb(140, 0, 0, 0); c.drawRect(pr, p)
+            p.strokeWidth = dd; p.color = Color.argb(70, 255, 250, 240); c.drawRect(pr.left + 2 * dd, pr.top + 2 * dd, pr.right - 2 * dd, pr.bottom - 2 * dd, p)
         }
         // 겹선 테두리
         p.style = Paint.Style.STROKE; p.color = Color.argb((a * 1.27f * 255).roundToInt().coerceAtMost(255), rr, gg, bb)
