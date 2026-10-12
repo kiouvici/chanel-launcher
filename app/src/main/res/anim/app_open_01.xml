@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 앱 열기: 누른 아이콘 쪽에서 커지며 열림 (아이폰 느낌, 0.5초 감속) — build-41 -->
+<set xmlns:android="http://schemas.android.com/apk/res/android" android:shareInterpolator="false">
+    <scale android:fromXScale="0.12" android:toXScale="1" android:fromYScale="0.12" android:toYScale="1"
+        android:pivotX="50%" android:pivotY="15%" android:duration="500"
+        android:interpolator="@android:interpolator/decelerate_cubic" />
+    <alpha android:fromAlpha="0" android:toAlpha="1" android:duration="220"
+        android:interpolator="@android:interpolator/decelerate_quad" />
+</set>

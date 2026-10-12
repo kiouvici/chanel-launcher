@@ -32,17 +32,17 @@ class SpringInterp(private val response: Float, private val damping: Float, priv
 
 object Springs {
     // 성훈님: "애플처럼 부드럽게 쫀득한 속도로"
-    fun drawer() = SpringInterp(.45f, .86f, 620)      // 서랍 열고 닫기
-    fun open() = SpringInterp(.5f, .78f, 720)         // 폴더 펼치기 (1.5% 넘침)
-    fun close() = SpringInterp(.38f, 1f, 420)         // 폴더 닫기 (넘침 없음)
-    fun lift() = SpringInterp(.35f, .7f, 420)         // 길게 눌러 들어 올림
+    fun drawer() = SpringInterp(.5f, .8f, 760)        // 서랍 열고 닫기 — 끝에서 살짝 넘었다 내려앉음 (성훈님: 티가 나게)
+    fun open() = SpringInterp(.62f, .8f, 900)         // 폴더 펼치기 — 더 천천히 부드럽게 (성훈님)
+    fun close() = SpringInterp(.5f, 1f, 560)          // 폴더 닫기 — 더 천천히 (넘침 없음)
+    fun lift() = SpringInterp(.38f, .68f, 480)        // 길게 눌러 들어 올림
 }
 
 /** 0 부드럽게 · 1 짧게 · 2 끄기 (안드로이드 '애니메이션 끄기'면 끄기) */
 internal val MainActivity.motionMode: Int get() = if (reduceMotion) 2 else look.motion
 
 /** 목록 끝 고무줄: 부드럽게일 때만 안드로이드의 늘어나는 끝 효과를 켬 */
-internal fun MainActivity.overMode(): Int = if (motionMode == 0) View.OVER_SCROLL_ALWAYS else View.OVER_SCROLL_NEVER
+internal fun MainActivity.overMode(): Int = View.OVER_SCROLL_NEVER   // 고무줄은 RubberScroll이 직접 (안드로이드 늘어남보다 더 크게)
 
 /** 이름 글꼴: 테마 굵기 ± 굵기 설정, 고딕/명조 */
 private var serifFace: Typeface? = null
@@ -108,7 +108,7 @@ internal fun MainActivity.motionOpen(content: View, flipBack: View? = null, scri
         }
         frame(0f)
         ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = if (flip) 800 else 720; interpolator = if (flip) SpringInterp(.55f, .88f, 800) else Springs.open()
+            duration = if (flip) 950 else 900; interpolator = if (flip) SpringInterp(.66f, .88f, 950) else Springs.open()
             addUpdateListener { frame(it.animatedValue as Float) }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(a: android.animation.Animator) { kids.forEach { it.alpha = 1f }; content.alpha = 1f; content.rotationY = 0f; flipBack?.visibility = View.GONE; if (!staggered) stagger(cells) }
@@ -145,7 +145,7 @@ internal fun MainActivity.motionClose(content: View, scrim: ((Float) -> Unit)?, 
     val flip = flipBack != null
     if (flip) { content.cameraDistance = 12000 * resources.displayMetrics.density; content.pivotX = cw / 2; content.pivotY = ch / 2 }
     ValueAnimator.ofFloat(0f, 1f).apply {
-        duration = 420; interpolator = if (flip) SpringInterp(.4f, 1f, 420) else Springs.close()
+        duration = 560; interpolator = if (flip) SpringInterp(.5f, 1f, 560) else Springs.close()
         addUpdateListener {
             val q = it.animatedValue as Float; val p = 1 - q
             val sx = tw / cw + (1 - tw / cw) * p; val sy = th / ch + (1 - th / ch) * p
@@ -186,7 +186,16 @@ internal fun MainActivity.blurBehind(p: Float) {
 /** 앱 열기: 부드럽게 = 누른 아이콘 자리에서 커짐 · 짧게 = 흐려졌다 나타남 · 끄기 = 움직임 없음 */
 internal fun MainActivity.launchOpts(v: View?): android.os.Bundle? = try {
     when (motionMode) {
-        0 -> if (v != null && v.width > 0) android.app.ActivityOptions.makeScaleUpAnimation(v, 0, 0, v.width, v.height).toBundle() else null
+        0 -> {
+            // 삼성에서 '아이콘에서 커지기'(makeScaleUp)가 무시되고 옆으로 밀려 열리던 것 → 직접 만든 열기 움직임 (아이콘 위치에 가까운 9칸 중 하나에서 커짐)
+            val loc = IntArray(2); v?.getLocationOnScreen(loc)
+            val dm = resources.displayMetrics
+            val col = if (v == null) 1 else ((loc[0] + v.width / 2f) / dm.widthPixels * 3).toInt().coerceIn(0, 2)
+            val row = if (v == null) 1 else ((loc[1] + v.height / 2f) / dm.heightPixels * 3).toInt().coerceIn(0, 2)
+            val id = resources.getIdentifier("app_open_$row$col", "anim", packageName)
+            TouchLog.add("앱 열기 움직임: 칸 $row$col")
+            android.app.ActivityOptions.makeCustomAnimation(this, id, R.anim.home_hold).toBundle()
+        }
         1 -> android.app.ActivityOptions.makeCustomAnimation(this, android.R.anim.fade_in, android.R.anim.fade_out).toBundle()
         else -> android.app.ActivityOptions.makeCustomAnimation(this, 0, 0).toBundle()
     }
@@ -316,3 +325,43 @@ object Hap {
     }
 }
 internal fun View.hap(kind: Int) = Hap.play(this, kind)
+
+/**
+ * 목록 끝 고무줄 (애플식, 성훈님 "더 많이 늘었다 돌아오게"): 끝에서 더 당기면 (1 − 1/(x·0.55/D + 1))·D 만큼 따라 늘어나고
+ * 놓으면 스프링(.40 · 1.0)으로 돌아옴. D = 220dp. 부드럽게일 때만.
+ */
+class RubberScroll(ctx: android.content.Context, private val allowTop: Boolean = true, private val on: () -> Boolean) : android.widget.ScrollView(ctx) {
+    private val dd = 220 * ctx.resources.displayMetrics.density
+    private var lastY = 0f; private var raw = 0f; private var rubbering = false
+    private var back: ValueAnimator? = null
+    private fun rb(x: Float): Float { val a = kotlin.math.abs(x); return Math.signum(x) * (1 - 1 / (a * .55f / dd + 1)) * dd }
+    private fun child() = if (childCount > 0) getChildAt(0) else null
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(e: android.view.MotionEvent): Boolean {
+        if (!on()) return super.onTouchEvent(e)
+        when (e.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> { lastY = e.y; raw = 0f; rubbering = false; back?.cancel(); child()?.translationY = 0f }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                val dy = e.y - lastY; lastY = e.y
+                val atTop = !canScrollVertically(-1); val atBottom = !canScrollVertically(1)
+                if (rubbering || (allowTop && atTop && dy > 0) || (atBottom && dy < 0)) {
+                    val was = raw; raw += dy
+                    if (was != 0f && Math.signum(raw) != Math.signum(was)) { raw = 0f; rubbering = false; child()?.translationY = 0f; return super.onTouchEvent(e) }
+                    rubbering = raw != 0f
+                    child()?.translationY = rb(raw)
+                    return true
+                }
+            }
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> if (rubbering) {
+                rubbering = false; val c = child(); val from = c?.translationY ?: 0f
+                back = ValueAnimator.ofFloat(from, 0f).apply {
+                    duration = 450; interpolator = SpringInterp(.4f, 1f, 450)
+                    addUpdateListener { c?.translationY = it.animatedValue as Float }; start()
+                }
+                raw = 0f
+                return true
+            }
+        }
+        return super.onTouchEvent(e)
+    }
+}

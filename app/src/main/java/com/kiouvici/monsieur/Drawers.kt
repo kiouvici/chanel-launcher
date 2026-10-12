@@ -561,7 +561,7 @@ internal fun MainActivity.showHourOpen(id: String) {
         val cell = appCell(a, a.pkg in Badges.shown(), id, compact = true, onDark = true).apply { background = windowDrawable(this@showHourOpen); setPadding(0, dp(12f), 0, dp(8f)) }
         grid.addView(cell, GridLayout.LayoutParams().apply { width = cw; if (i % 4 > 0) leftMargin = dp(6f); topMargin = dp(8f) })
     }
-    val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = overMode(); addView(grid) }
+    val sv = RubberScroll(this) { motionMode == 0 }.apply { isVerticalScrollBarEnabled = false; overScrollMode = overMode(); addView(grid) }
     col.addView(sv, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(12f) })
     if (list.isEmpty()) col.addView(txt("비어 있습니다 · 다른 폴더의 앱을 길게 눌러 끌어 오세요", Style.kr(this, 300), 12f, tint(.65f, H_IVORY)), LinearLayout.LayoutParams(-1, -2))
     val close = txt("CLOSE · 닫기", Style.jost(this, 400), 12f, H_GOLD, .25f, Gravity.CENTER).apply { background = shape(stroke = H_GOLD, strokePx = hair(.75f)); setOnClickListener { hideCard() } }
@@ -599,7 +599,7 @@ internal fun MainActivity.showVoyageOpen(id: String) {
     val grid = GridLayout(this).apply { columnCount = 5 }
     val cw = (cardW - dp(44f)) / 5
     list.forEach { a -> grid.addView(appCell(a, a.pkg in Badges.shown(), id, onDark = Dk.inkPage), GridLayout.LayoutParams().apply { width = cw }) }
-    val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = overMode(); addView(grid) }
+    val sv = RubberScroll(this) { motionMode == 0 }.apply { isVerticalScrollBarEnabled = false; overScrollMode = overMode(); addView(grid) }
     col.addView(sv, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = (h * .07f).roundToInt() })
     if (list.isEmpty()) col.addView(txt("비어 있습니다 · 다른 폴더의 앱을 길게 눌러 끌어 오세요", Style.kr(this, 300), 12f, tint(.7f, V_INK)), LinearLayout.LayoutParams(-1, -2))
     val close = txt("CLOSE · 닫기", Style.jost(this, 400), 12f, V_IVORY, .25f, Gravity.CENTER).apply { setBackgroundColor(V_INK); setOnClickListener { hideCard() } }
@@ -635,7 +635,7 @@ internal fun MainActivity.showCaptionOpen(id: String) {
     list.forEachIndexed { i, a ->
         grid.addView(appCell(a, a.pkg in Badges.shown(), id, row = true, onDark = true), GridLayout.LayoutParams().apply { width = cw; if (i % 2 == 1) leftMargin = dp(16f) })
     }
-    val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = overMode(); addView(grid) }
+    val sv = RubberScroll(this) { motionMode == 0 }.apply { isVerticalScrollBarEnabled = false; overScrollMode = overMode(); addView(grid) }
     layer.addView(sv, FrameLayout.LayoutParams(-1, -1).apply { leftMargin = L.x(28f); rightMargin = L.x(28f); topMargin = L.y(304f); bottomMargin = navBot + dp(76f) })
     root.addView(layer, FrameLayout.LayoutParams(-1, -1))
     themeOpen = layer

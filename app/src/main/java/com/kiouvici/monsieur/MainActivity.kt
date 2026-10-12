@@ -433,7 +433,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         (indicator.layoutParams as FrameLayout.LayoutParams).bottomMargin = navBot + dp(8f); indicator.requestLayout()
         // 서랍은 화면 전체 (테마마다 위쪽을 직접 꾸밈 — MONSIEUR는 뚜껑 띠)
         boxH = root.height
-        (box.layoutParams as FrameLayout.LayoutParams).apply { height = boxH; topMargin = 0 }
+        (box.layoutParams as FrameLayout.LayoutParams).apply { height = boxH + dp(48f); topMargin = 0 }   // 아래 48dp 여유: 스프링으로 살짝 넘칠 때 빈 곳이 안 보이게
         box.requestLayout()
         themeCover.sbTop = sbTop; themeCover.navBot = navBot
         layoutCover()
@@ -766,7 +766,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         if (n != cur) pager.hap(Hap.SEL)
         pageAnim = ValueAnimator.ofFloat(fromDx, dir * w).apply {
             // 부드럽게: 아이폰 페이지 넘김처럼 스프링 (.42 · .92)
-            duration = if (motionMode == 0) 520 else 360; interpolator = if (motionMode == 0) SpringInterp(.42f, .92f, 520) else EASE
+            duration = if (motionMode == 0) 700 else 360; interpolator = if (motionMode == 0) SpringInterp(.55f, 1f, 700) else EASE   // 더 부드럽게 미끄러져 멈춤 (넘침 없음)
             addUpdateListener { layoutPages(it.animatedValue as Float) }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(a: android.animation.Animator) { cur = n; layoutPages(0f) }
@@ -919,7 +919,7 @@ class MainActivity : ComponentActivity(), MediaHost {
             // 부드럽게: 애플식 스프링(0.45초 · 감쇠 .86) — 넘치는 부분은 잘라서 상자 아래가 비지 않게 · 짧게: 0.18초
             duration = if (smooth) 620 else 180; interpolator = if (smooth) Springs.drawer() else EASE
             var tapped = false
-            addUpdateListener { val v = it.animatedValue as Float; setOpen(v.coerceIn(0f, 1f))
+            addUpdateListener { val v = it.animatedValue as Float; setOpen(if (target == 1f) v.coerceIn(0f, 1.04f) else v.coerceIn(0f, 1f))
                 // 자리에 닿는 순간 가벼운 '톡' (애플)
                 if (!tapped && ((target == 1f && v >= .98f) || (target == 0f && v <= .02f))) { tapped = true; box.hap(Hap.LIGHT) } }
             start()
@@ -1027,7 +1027,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         hdr = FrameLayout(this)
         col.addView(hdr, LinearLayout.LayoutParams(-1, dp(40f)))
         stageIn = FrameLayout(this)
-        stage = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; clipChildren = false; addView(stageIn, FrameLayout.LayoutParams(-1, -2)) }
+        stage = RubberScroll(this, allowTop = false) { motionMode == 0 }.apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; clipChildren = false; addView(stageIn, FrameLayout.LayoutParams(-1, -2)) }
         col.addView(stage, LinearLayout.LayoutParams(-1, 0, 1f))
         stage.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, oRight, ob -> if (r - l != oRight - ol || b - t != ob - ot) stage.post { buildStage() } }
 
@@ -1244,7 +1244,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         cardHint = label("", Style.kr(this, 300), 11f, Style.ink(.65f), 0f, Gravity.START)
         cc.addView(cardHint, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10f) })
         cardApps = GridLayout(this).apply { columnCount = 4 }
-        cardScroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(cardApps) }
+        cardScroll = RubberScroll(this) { motionMode == 0 }.apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; addView(cardApps) }
         cc.addView(cardScroll, LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(18f) })
         cardEmpty = label("비어 있습니다 · 다른 폴더의 앱을 길게 눌러 끌어 오세요", Style.kr(this, 300), 12f, Style.ink(.65f), 0f, Gravity.START).apply { visibility = View.GONE }
         cc.addView(cardEmpty, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8f); bottomMargin = dp(8f) })
@@ -1496,7 +1496,10 @@ class MainActivity : ComponentActivity(), MediaHost {
             cell.hap(Hap.MEDIUM)
             cell.parent?.requestDisallowInterceptTouchEvent(true)
             // 길게 누르면 들어 올림 102% + 그림자 (흔들림 대신 — 샤넬팀)
-            if (motionMode == 2) { iv.scaleX = 1.02f; iv.scaleY = 1.02f } else iv.animate().scaleX(1.02f).scaleY(1.02f).translationZ(dpf(8f)).setDuration(if (motionMode == 0) 420 else 120).setInterpolator(if (motionMode == 0) Springs.lift() else EASE).start()
+            // 성훈님: 더 크게(112%) + 그림자가 보이게 — 아이콘 모양(둥근 네모)으로 그림자 윤곽을 줌
+            iv.outlineProvider = object : android.view.ViewOutlineProvider() { override fun getOutline(v: View, o: android.graphics.Outline) { o.setRoundRect(0, 0, v.width, v.height, v.width * .23f) } }
+            iv.outlineSpotShadowColor = Color.BLACK; iv.outlineAmbientShadowColor = Color.BLACK
+            if (motionMode == 2) { iv.scaleX = 1.12f; iv.scaleY = 1.12f; iv.translationZ = dpf(16f) } else iv.animate().scaleX(1.12f).scaleY(1.12f).translationZ(dpf(16f)).setDuration(if (motionMode == 0) 480 else 120).setInterpolator(if (motionMode == 0) Springs.lift() else EASE).start()
         }
         cell.setOnTouchListener { _, e ->
             when (e.actionMasked) {
@@ -1513,9 +1516,9 @@ class MainActivity : ComponentActivity(), MediaHost {
                         // 1.06배로 들어 손가락을 따라감 (흔들림 없음) → 카드를 내려놓고 폴더 위에 놓기
                         val shadow = object : View.DragShadowBuilder(iv) {
                             override fun onProvideShadowMetrics(size: Point, touch: Point) {
-                                val s = (iv.width * 1.02f).toInt(); size.set(s, s); touch.set(s / 2, s / 2)
+                                val s = (iv.width * 1.12f).toInt(); size.set(s, s); touch.set(s / 2, s / 2)
                             }
-                            override fun onDrawShadow(c: Canvas) { c.scale(1.02f, 1.02f); iv.draw(c) }
+                            override fun onDrawShadow(c: Canvas) { c.scale(1.12f, 1.12f); iv.draw(c) }
                         }
                         iv.startDragAndDrop(ClipData.newPlainText("pkg", a.pkg + "\n" + (src ?: "")), shadow, null, 0)
                         hideCard(); hideKeyboard()
