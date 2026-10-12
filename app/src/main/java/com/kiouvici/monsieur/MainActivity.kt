@@ -1655,7 +1655,8 @@ class MainActivity : ComponentActivity(), MediaHost {
     private fun touchLogSheet() {
         openSheet { sh ->
             sheetKicker(sh, "TOUCH LOG · 터치 기록")
-            val lines = TouchLog.text().lines().takeLast(48).joinToString("\n")
+            // 최근 것이 위로 (화면 한 장에 복귀 직후가 다 보이게)
+            val lines = TouchLog.text().lines().takeLast(44).reversed().joinToString("\n")
             sh.addView(TextView(this).apply {
                 text = lines; textSize = 9.5f; typeface = android.graphics.Typeface.MONOSPACE
                 setTextColor(Style.INK); setLineSpacing(0f, 1.05f)

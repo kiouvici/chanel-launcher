@@ -48,10 +48,12 @@ object TouchLog {
     }
 
     private fun short(l: String): String {
+        if ("Choreographer" in l) return "화면 그리기"
+        if ("ViewRootImpl" in l) return "창 처리"
         // ">>>>> Dispatching to Handler (android.view.Choreographer$FrameHandler) {..} android.view.Choreographer$FrameDisplayEventReceiver@..: 0"
         val h = Regex("\\((.*?)\\)").find(l)?.groupValues?.get(1)?.substringAfterLast('.') ?: ""
         val cb = l.substringAfter("} ", "").substringBefore('@').substringBefore(':').substringAfterLast('.')
-        return "$h $cb".trim().take(60)
+        return "$h $cb".trim().take(34)
     }
 
     @Synchronized fun text(): String = if (buf.isEmpty()) "기록 없음" else buf.joinToString("\n")
