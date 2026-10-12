@@ -337,6 +337,13 @@ class RubberScroll(ctx: android.content.Context, private val allowTop: Boolean =
     private var back: ValueAnimator? = null
     private fun rb(x: Float): Float { val a = kotlin.math.abs(x); return Math.signum(x) * (1 - 1 / (a * .55f / dd + 1)) * dd }
     private fun child() = if (childCount > 0) getChildAt(0) else null
+    // 앱 칸이 누르기를 받으면 이 목록은 DOWN을 못 받음 → 가로챌 때 기준 높이를 여기서도 적어 둠 (예전 값으로 갑자기 튀던 것)
+    override fun onInterceptTouchEvent(e: android.view.MotionEvent): Boolean {
+        if (e.actionMasked == android.view.MotionEvent.ACTION_DOWN) { lastY = e.y; raw = 0f; rubbering = false }
+        val r = super.onInterceptTouchEvent(e)
+        if (r) lastY = e.y
+        return r
+    }
     @android.annotation.SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: android.view.MotionEvent): Boolean {
         if (!on()) return super.onTouchEvent(e)
