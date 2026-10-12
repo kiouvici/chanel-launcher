@@ -180,6 +180,7 @@ class ArtView(ctx: Context, private val circle: Boolean = false, private val rin
         set(v) { field = v; invalidate() }
     private val p = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val rp = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val bp = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     override fun onDraw(c: Canvas) {
         val w = width.toFloat(); val h = height.toFloat()
         val clip = Path().apply { if (circle) addOval(0f, 0f, w, h, Path.Direction.CW) else addRect(0f, 0f, w, h, Path.Direction.CW) }
@@ -187,7 +188,8 @@ class ArtView(ctx: Context, private val circle: Boolean = false, private val rin
         val b = bmp
         if (b != null) {
             val k = maxOf(w / b.width, h / b.height); val bw = b.width * k; val bh = b.height * k
-            c.drawBitmap(b, null, RectF((w - bw) / 2, (h - bh) / 2, (w + bw) / 2, (h + bh) / 2), p)
+            // 대체 그림을 그리느라 바뀐 붓 색(투명도 18~25%)이 남아 앨범 그림이 뿌옇게 그려지던 것 — 그림은 전용 붓으로 (build-39)
+            c.drawBitmap(b, null, RectF((w - bw) / 2, (h - bh) / 2, (w + bw) / 2, (h + bh) / 2), bp)
         } else if (placeholder == 1) {
             p.shader = LinearGradient(0f, 0f, 0f, h, 0xFF0B1830.toInt(), 0xFF1B2C4A.toInt(), Shader.TileMode.CLAMP)
             c.drawRect(0f, 0f, w, h, p); p.shader = null

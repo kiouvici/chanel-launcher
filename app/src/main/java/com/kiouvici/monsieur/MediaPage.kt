@@ -171,8 +171,17 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         }
     }
 
+    private var others: List<MediaController> = emptyList()
+    /** 스포티파이 말고 폰에서 소리 나는 앱(지니 등)은 멈춤 — 두 곳에서 동시에 나오지 않게 */
+    private fun pauseOthers() {
+        others.filter { it.playbackState?.state == PlaybackState.STATE_PLAYING && it.playbackInfo?.playbackType != MediaController.PlaybackInfo.PLAYBACK_TYPE_REMOTE }
+            .forEach { try { it.transportControls.pause(); TouchLog.add("다른 앱 멈춤: ${it.packageName}") } catch (_: Exception) {} }
+    }
     private fun pickSession() {
-        val list = try { msm.getActiveSessions(comp).also { permOk = true } } catch (e: SecurityException) { permOk = false; emptyList() }
+        val all = try { msm.getActiveSessions(comp).also { permOk = true } } catch (e: SecurityException) { permOk = false; emptyList() }
+        others = all.filter { it.packageName != SPOTIFY_PKG }
+        // 미디어 화면은 스포티파이만 따라감 — 지니 등 다른 앱은 무시 (성훈님 결정, build-39)
+        val list = all.filter { it.packageName == SPOTIFY_PKG }
         val pick = list.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
             ?: list.firstOrNull { it.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)?.isNotBlank() == true }
         if (pick?.sessionToken != ctl?.sessionToken) {
@@ -405,7 +414,9 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     /** 소리 줄 글자: '소리 · 기기 ›' · 옮기는 중 · 실패 */
     private fun outLabel(outN: String, arrow: String): String = when {
         moveFail -> "소리 · 옮기지 못했습니다 · 다시"
+        moveTo == 1 && !Ha.on(home?.get(Ha.MARANTZ)) -> "소리 · Marantz 켜는 중…"
         moveTo == 1 -> "소리 · Marantz로 옮기는 중…"
+        moveTo == 0 && waking -> "소리 · 폰 스포티파이 깨우는 중…"
         moveTo == 0 -> "소리 · 이 폰으로 옮기는 중…"
         else -> "소리 · $outN" + if (arrow.isNotEmpty()) " $arrow" else ""
     }
@@ -515,8 +526,10 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         var changed = oldT != volTarget
         if (moveTo >= 0) {
             if (volTarget == moveTo) { moveTo = -1; changed = true }
-            else if (SystemClock.uptimeMillis() - moveAt > 8000) { lastMove = moveTo; moveTo = -1; moveFail = true; changed = true }
+            else if (!waking && SystemClock.uptimeMillis() - moveAt > 20000) { lastMove = moveTo; moveTo = -1; moveFail = true; changed = true }  // 마란츠가 켜지는 데 8초 넘게 걸려 실패로 보이던 것 → 20초
         }
+        // 늦게라도 옮겨졌으면 실패 표시를 지움 (마란츠에서 재생 중인데 '옮기지 못했습니다'가 남던 것)
+        if (moveFail && lastMove >= 0 && volTarget == lastMove) { moveFail = false; changed = true }
         val sig = spSt?.let { it.optString("state") + Ha.attr(it, "media_title") + Ha.attr(it, "entity_picture") } ?: ""
         if (sig != spSig) { spSig = sig; changed = true }
         if (changed) bind()
@@ -627,10 +640,10 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         when (mode) {
             1 -> { val c = ctl?.transportControls ?: return
                 if (playing) { c.pause(); if (haPlaying && spOnMarantz) haSp("media_pause") }   // 둘 다 나오고 있었으면 같이 멈춤
-                else c.play() }
+                else { pauseOthers(); c.play() } }
             2 -> {
                 if (playing) { haSp("media_pause"); pausePhoneLocal() }   // 일시정지 한 번으로 둘 다 멈춤
-                else { pausePhoneLocal(); haSp("media_play") }             // 마란츠에서 듣던 것 → 마란츠에서 재생
+                else { pausePhoneLocal(); pauseOthers(); haSp("media_play") }             // 마란츠에서 듣던 것 → 마란츠에서 재생
             }
             3 -> resumeLast()
         }
@@ -642,7 +655,8 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     /** 마지막 곡 이어 듣기: 앱을 깨워(삼성 미디어 위젯과 같은 방식 — 최근 재생 요청) 재생, 안 되면 재생 단추 신호 */
     private var browser: android.media.browse.MediaBrowser? = null
     private fun resumeLast() {
-        val pkg = look.lastPkg.ifEmpty { SPOTIFY_PKG }
+        val pkg = SPOTIFY_PKG   // 항상 스포티파이로 (지니로 재생되던 것)
+        pauseOthers()
         fun mediaKey() {
             listOf(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.ACTION_UP).forEach {
                 am.dispatchMediaKeyEvent(android.view.KeyEvent(it, android.view.KeyEvent.KEYCODE_MEDIA_PLAY))
@@ -693,8 +707,8 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         if (target == 1) {
             start(); lastPlace = 1
             // 폰에서 소리가 나고 있으면 먼저 멈춘 뒤 마란츠로 보냄 (폰·마란츠 동시 재생되던 것 — build-38)
-            val wasLocal = ctlPlaying && ctlLocal
-            pausePhoneLocal()
+            val wasLocal = (ctlPlaying && ctlLocal) || others.any { it.playbackState?.state == PlaybackState.STATE_PLAYING }
+            pausePhoneLocal(); pauseOthers()
             postDelayed({ Ha.call(look.haToken, "script", "turn_on", JSONObject().put("entity_id", Ha.LIVING)) { pollLater(1000) } }, if (wasLocal) 700 else 0)
             return
         }
@@ -702,14 +716,52 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         val sp = home?.get(Ha.SPOTIFY)
         val list = Ha.sources(sp)
         val name = phoneSpotifyName(list)
+        // 폰이 목록에 없음 = 폰 스포티파이가 잠듦 → 깨운 뒤 목록에 나타나면 옮김 (마란츠만 있는 창을 띄우던 것)
+        if (name == null && list.none { !it.contains("marantz", true) }) { wakePhoneThenMove(); return }
         if (name == null) {
             host.pickSheet("SPOTIFY · 이 폰은 어느 것입니까", list, "", if (list.isEmpty()) "Spotify 기기 목록이 비어 있습니다 · 이 폰에서 Spotify 앱을 한 번 열어 두면 나타납니다" else "한 번 고르면 다음부터는 바로 옮깁니다") { s ->
                 look.spPhone = s; moveTo(0)
             }
             return
         }
-        start()
+        start(); lastPlace = 0; pauseOthers()
         Ha.call(look.haToken, "media_player", "select_source", JSONObject().put("entity_id", Ha.SPOTIFY).put("source", name)) { pollLater(1000) }
+    }
+    private var waking = false
+    /** 폰 스포티파이 깨우기: ① 조용히 연결 → ② HA 목록 새로 읽기 → 1초마다 확인 · 8초 지나면 스포티파이 앱을 열어 줌 · 16초면 실패 */
+    private fun wakePhoneThenMove() {
+        waking = true; moveTo = 0; moveAt = SystemClock.uptimeMillis(); moveFail = false; lastMove = 0; bind()
+        TouchLog.add("폰 스포티파이 깨우는 중")
+        try {
+            val svc = context.packageManager.queryIntentServices(android.content.Intent("android.media.browse.MediaBrowserService").setPackage(SPOTIFY_PKG), 0).firstOrNull()?.serviceInfo
+            if (svc != null) {
+                var b: android.media.browse.MediaBrowser? = null
+                b = android.media.browse.MediaBrowser(context, ComponentName(svc.packageName, svc.name), object : android.media.browse.MediaBrowser.ConnectionCallback() {
+                    override fun onConnected() { postDelayed({ try { b?.disconnect() } catch (_: Exception) {} }, 20000) }
+                }, android.os.Bundle().apply { putBoolean(android.service.media.MediaBrowserService.BrowserRoot.EXTRA_RECENT, true) })
+                b.connect()
+            }
+        } catch (_: Exception) {}
+        var opened = false
+        fun check() {
+            if (!waking) return
+            Ha.call(look.haToken, "homeassistant", "update_entity", JSONObject().put("entity_id", Ha.SPOTIFY)) {
+                Ha.states(look.haToken, listOf(Ha.SPOTIFY)) { m ->
+                    val sp = m?.get(Ha.SPOTIFY); m?.let { home = (home ?: emptyMap()) + it }
+                    val name = phoneSpotifyName(Ha.sources(sp))
+                    val t = SystemClock.uptimeMillis() - moveAt
+                    when {
+                        name != null -> { waking = false; TouchLog.add("폰 나타남: $name"); moveTo = -1; moveTo(0) }
+                        t > 16000 -> { waking = false; moveTo = -1; moveFail = true; bind() }
+                        else -> {
+                            if (t > 8000 && !opened) { opened = true; host.openApp(SPOTIFY_PKG) }   // 마지막 수단: 앱을 열면 목록에 들어옴
+                            postDelayed({ check() }, 1000)
+                        }
+                    }
+                }
+            }
+        }
+        postDelayed({ check() }, 1200)
     }
     /** Spotify 목록에서 이 폰 찾기: 한 번 고른 이름 → 폰 기기 이름 → 모델명 */
     private fun phoneSpotifyName(list: List<String>): String? {
