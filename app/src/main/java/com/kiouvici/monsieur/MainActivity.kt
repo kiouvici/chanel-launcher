@@ -143,6 +143,9 @@ class MainActivity : ComponentActivity(), MediaHost {
     internal var hourCenter: FrameLayout? = null
     internal var folioBase = "31 · RUE CAMBON · %s"
     internal var themeOpen: View? = null
+    /** 열린 폴더의 몸통(움직임용) · 마지막으로 누른 폴더 자리 */
+    internal var themeContent: View? = null
+    internal var lastTap: android.graphics.Rect? = null
     internal var collection: View? = null
     internal var collPlace: (() -> Unit)? = null
     internal var collChanged = false
@@ -276,7 +279,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         cardDots.forEach { (pkg, vs) -> vs.forEach { it.visibility = if (pkg in b) View.VISIBLE else View.GONE } }
     }
 
-    internal fun closeAllNow() { hideMenu(); hideSettingsSheet(); hideCollection(); hideCard(); if (::search.isInitialized && !search.text.isNullOrEmpty()) search.setText(""); anim?.cancel(); setOpen(0f) }
+    internal fun closeAllNow() { hideMenu(); hideSettingsSheet(); hideCollection(); hideCard(false); if (::search.isInitialized && !search.text.isNullOrEmpty()) search.setText(""); anim?.cancel(); setOpen(0f) }
 
     /** 화면 점검용 (adb am start --ei theme 0~4 --ei page 0~3 --ez drawer true --ei folder n) — 사람이 누를 일은 없음 */
     private fun shotIntent(i: Intent?) {
@@ -857,10 +860,12 @@ class MainActivity : ComponentActivity(), MediaHost {
     private var anim: ValueAnimator? = null
     private fun animateOpen(target: Float) {
         anim?.cancel()
-        if (reduceMotion) { setOpen(target); return }
+        if (motionMode == 2) { setOpen(target); return }
+        val smooth = motionMode == 0
         anim = ValueAnimator.ofFloat(openP, target).apply {
-            duration = if (target == 0f) 360 else 420; interpolator = EASE
-            addUpdateListener { setOpen(it.animatedValue as Float) }
+            // 부드럽게: 애플식 스프링(0.45초 · 감쇠 .86) — 넘치는 부분은 잘라서 상자 아래가 비지 않게 · 짧게: 0.18초
+            duration = if (smooth) 620 else 180; interpolator = if (smooth) Springs.drawer() else EASE
+            addUpdateListener { setOpen((it.animatedValue as Float).coerceIn(0f, 1f)) }
             start()
         }
     }
@@ -1037,6 +1042,7 @@ class MainActivity : ComponentActivity(), MediaHost {
 
     /** 서랍을 다시 그림 (테마별 배치는 Drawers.kt의 buildStage) */
     internal fun refreshGrid() {
+        if (::stage.isInitialized) stage.overScrollMode = overMode()
         if (!::stage.isInitialized) return
         buildStage()
         builtSig = stageSig()
@@ -1046,7 +1052,7 @@ class MainActivity : ComponentActivity(), MediaHost {
     internal fun stageSig(): String {
         if (!::stage.isInitialized) return ""
         val f = repo.folders()
-        return listOf(look.theme, Dk.libStyle, Dk.voy, look.libOrder, look.trainOrder, look.folderScale, repo.iconMode, stage.width, stage.height,
+        return listOf(look.theme, Dk.libStyle, Dk.voy, look.libOrder, look.trainOrder, look.folderScale, look.nameDelta, look.folderColor, look.dotColor, look.weightMode, look.fontMode, look.motion, repo.iconMode, stage.width, stage.height,
             f.joinToString(",") { it + ":" + repo.nameOf(it) + ":" + repo.appsIn(it).size }, repo.favorites().sorted().joinToString(","),
             repo.unassigned().size, search.text?.toString() ?: "").joinToString("|")
     }
@@ -1098,7 +1104,7 @@ class MainActivity : ComponentActivity(), MediaHost {
             })
         }
         val gd = View(this).apply {
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Style.ROUGE) }
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(dotC(Style.ROUGE)) }
             visibility = if (badge) View.VISIBLE else View.GONE
         }
         cv.addView(gd, FrameLayout.LayoutParams(dp(6f), dp(6f), Gravity.END or Gravity.TOP).apply { topMargin = dp(6f); rightMargin = dp(6f) })
@@ -1106,7 +1112,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         if (h >= dp(88f)) cv.addView(View(this).apply { setBackgroundColor(Style.ink(.12f)) },
             FrameLayout.LayoutParams(dp(28f), hair(.5f), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(26f) })
         val nm = shortName(repo.nameOf(id))
-        val t = label(nm, Style.kr(this, 400), (if (nm.length <= 6) 11f else 10f) + look.nameDelta, look.nameColorOn(true, Style.ink(.9f)), -.02f).apply {
+        val t = label(nm, nameFace(400), (if (nm.length <= 6) 11f else 10f) + look.nameDelta, look.nameColorOn(true, Style.ink(.9f)), -.02f).apply {
             maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             if (paint.measureText(nm) > w - dp(6f)) textSize = 9f + look.nameDelta
         }
@@ -1116,7 +1122,7 @@ class MainActivity : ComponentActivity(), MediaHost {
     }
 
     private fun dot() = View(this).apply {
-        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Style.ROUGE); setStroke(dp(1.5f), 0xFFF6F3EE.toInt()) }
+        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(if (look.dotColor != 0) look.dotColor else Style.ROUGE); setStroke(dp(1.5f), 0xFFF6F3EE.toInt()) }
     }
 
     // ───────── 아이콘 모양: COLOR / MONO / GILT (샤넬팀 6:1) ─────────
@@ -1344,7 +1350,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         cardEmpty.visibility = if (list.isEmpty() && !f.startsWith("__")) View.VISIBLE else View.GONE
         val badges = Badges.shown()
         val src = if (f.startsWith("__")) null else f
-        val cw = dp(look.iconDp + 26f)
+        val cw = dp(look.iconDp + floatArrayOf(16f, 26f, 38f)[look.gapMode])
         // LIBRARY 펼친 책: 2열 + 가운데 접힘 + 2열
         val book = cardSkin == Look.LIBRARY
         val cols = if (look.iconDp > 56f && !book) 3 else 4
@@ -1384,12 +1390,13 @@ class MainActivity : ComponentActivity(), MediaHost {
             fr.addView(boxv, FrameLayout.LayoutParams(dp(18f), dp(18f), Gravity.END or Gravity.TOP).apply { topMargin = dp(7f); rightMargin = dp(7f) })
         }
         cell.addView(fr, LinearLayout.LayoutParams(ic + dp(10f), ic + dp(5f)))
-        val nameSp = (if (row) 13f else if (compact) 10f else 11f) + look.nameDelta
-        val nameCol = look.nameColorOn(!onDark, if (onDark) Style.ivory(.82f) else Style.ink(.8f))
-        val t = label(a.label, Style.kr(this, 300), nameSp, nameCol, 0f, if (row) Gravity.START or Gravity.CENTER_VERTICAL else Gravity.CENTER_HORIZONTAL).apply {
+        val nameSp = (if (row) 13f else if (compact) 10f else 11f) + look.appNameDelta
+        val nameCol = look.appColorOn(if (onDark) Style.ivory(.82f) else Style.ink(.8f))
+        val t = label(a.label, nameFace(300), nameSp, nameCol, 0f, if (row) Gravity.START or Gravity.CENTER_VERTICAL else Gravity.CENTER_HORIZONTAL).apply {
             maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             if (onDark && compact) setShadowLayer(dpf(2f), 0f, dpf(1f), Color.argb(200, 0, 0, 0))
         }
+        if (!look.showAppNames && !row) t.visibility = View.GONE   // 아이콘만 보기
         if (row) cell.addView(t, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(12f) })
         else cell.addView(t, LinearLayout.LayoutParams(if (compact) dp(64f) else maxOf(dp(72f), ic + dp(18f)), -2).apply { topMargin = dp(if (compact) 4f else 6f) })
         if (repo.isHidden(a.pkg)) cell.alpha = .5f   // 숨긴 앱은 검색에서 흐리게
@@ -1418,7 +1425,8 @@ class MainActivity : ComponentActivity(), MediaHost {
             longed = true
             cell.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
             cell.parent?.requestDisallowInterceptTouchEvent(true)
-            iv.animate().scaleX(1.06f).scaleY(1.06f).setDuration(120).start()
+            // 길게 누르면 들어 올림 102% + 그림자 (흔들림 대신 — 샤넬팀)
+            if (motionMode == 2) { iv.scaleX = 1.02f; iv.scaleY = 1.02f } else iv.animate().scaleX(1.02f).scaleY(1.02f).translationZ(dpf(8f)).setDuration(if (motionMode == 0) 420 else 120).setInterpolator(if (motionMode == 0) Springs.lift() else EASE).start()
         }
         cell.setOnTouchListener { _, e ->
             when (e.actionMasked) {
@@ -1435,9 +1443,9 @@ class MainActivity : ComponentActivity(), MediaHost {
                         // 1.06배로 들어 손가락을 따라감 (흔들림 없음) → 카드를 내려놓고 폴더 위에 놓기
                         val shadow = object : View.DragShadowBuilder(iv) {
                             override fun onProvideShadowMetrics(size: Point, touch: Point) {
-                                val s = (iv.width * 1.06f).toInt(); size.set(s, s); touch.set(s / 2, s / 2)
+                                val s = (iv.width * 1.02f).toInt(); size.set(s, s); touch.set(s / 2, s / 2)
                             }
-                            override fun onDrawShadow(c: Canvas) { c.scale(1.06f, 1.06f); iv.draw(c) }
+                            override fun onDrawShadow(c: Canvas) { c.scale(1.02f, 1.02f); iv.draw(c) }
                         }
                         iv.startDragAndDrop(ClipData.newPlainText("pkg", a.pkg + "\n" + (src ?: "")), shadow, null, 0)
                         hideCard(); hideKeyboard()
@@ -1446,10 +1454,10 @@ class MainActivity : ComponentActivity(), MediaHost {
                 }
                 MotionEvent.ACTION_UP -> {
                     cell.removeCallbacks(onLong)
-                    iv.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                    iv.animate().scaleX(1f).scaleY(1f).translationZ(0f).setDuration(120).start()
                     when {
                         longed && !dragged -> appMenu(cell, a, src)
-                        !longed && !moved -> { repo.launch(a, src); refreshBadges(); closeAllLater() }
+                        !longed && !moved -> { repo.launch(a, src, launchOpts(iv)); refreshBadges(); closeAllLater() }
                     }
                     true
                 }
@@ -1491,23 +1499,31 @@ class MainActivity : ComponentActivity(), MediaHost {
         cardScroll.scrollTo(0, 0)
         cardScrim.visibility = View.VISIBLE
         card.visibility = View.VISIBLE
-        if (reduceMotion) { card.alpha = 1f; return }
-        card.alpha = 0f; card.scaleX = .94f; card.scaleY = .94f; card.translationY = dpf(30f)
-        card.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f).setDuration(280).setInterpolator(EASE).start()
+        card.scaleX = 1f; card.scaleY = 1f; card.translationX = 0f; card.translationY = 0f
+        motionOpen(card) { cardScrim.alpha = it }
     }
 
     /** 카드만 닫음 (테마 화면은 그대로) */
     private fun hideCardOnly() { if (::card.isInitialized) { card.visibility = View.GONE; cardScrim.visibility = View.GONE } }
 
-    internal fun hideCard() {
+    internal fun hideCard(animate: Boolean = true) {
         if (!::card.isInitialized) return
-        hideThemeOpen()
+        // 열린 테마 폴더: 누른 폴더 자리로 줄어들며 닫힘
+        val l = themeOpen; val c = themeContent
+        if (animate && l != null && c != null && motionMode != 2) {
+            themeOpen = null; themeContent = null; footVisible(true)
+            motionClose(c, { a -> l.background?.alpha = (a * 255).toInt() }) { root.removeView(l) }
+        } else hideThemeOpen()
         val wasSearch = cardFolder == "__search"
         cardFolder = null
         if (wasSearch && ::search.isInitialized && !search.text.isNullOrEmpty()) search.setText("")
         pickFolder = null
-        card.visibility = View.GONE
-        if (::cardScrim.isInitialized) cardScrim.visibility = View.GONE
+        if (animate && card.visibility == View.VISIBLE && motionMode != 2) {
+            motionClose(card, { cardScrim.alpha = it }) { card.visibility = View.GONE; cardScrim.visibility = View.GONE; cardScrim.alpha = 1f }
+        } else {
+            card.visibility = View.GONE
+            if (::cardScrim.isInitialized) { cardScrim.visibility = View.GONE; cardScrim.alpha = 1f }
+        }
     }
 
     /** 앱·폴더를 바꾼 뒤 서랍과 열린 카드를 다시 그림 */
@@ -1728,52 +1744,84 @@ class MainActivity : ComponentActivity(), MediaHost {
         hideKeyboard()
         openSheet { sh ->
             sheetKicker(sh, "SETTINGS")
-            val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            var list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             fun line() = list.addView(View(this).apply { setBackgroundColor(Style.ink(.1f)) }, LinearLayout.LayoutParams(-1, hair(.5f)))
-            fun row(text: String, right: String?, enabled: Boolean, go: () -> Unit) {
-                val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; background = pressedBg() }
+            // 묶음별 정리 (build-39 · 샤넬팀): 공통 꾸미기 → 지금 테마 전용 → 폴더와 앱 → 연결 → 이 폰 → 문제 확인
+            var thLine: View? = null
+            fun row(text: String, right: String?, enabled: Boolean, chev: Boolean = true, info: Boolean = false, go: () -> Unit) {
+                val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; if (!info) background = pressedBg() }
                 r.addView(label(text, Style.kr(this, 300), 14f, Style.INK, 0f, Gravity.START or Gravity.CENTER_VERTICAL), LinearLayout.LayoutParams(0, -2, 1f))
                 if (right != null) {
                     val latin = right.all { it.code < 128 }
-                    r.addView(label(right, if (latin) Style.jost(this, 300) else Style.kr(this, 300), 13f, Style.ink(.55f), if (latin) .1f else 0f, Gravity.END))
+                    r.addView(label(right, if (latin) Style.jost(this, 300) else Style.kr(this, 300), 13f, if (info) Style.INK else Style.ink(.55f), if (latin) .1f else 0f, Gravity.END))
                 }
-                if (enabled) r.setOnClickListener { hideSettingsSheet(); go() } else r.alpha = .4f
+                if (chev && !info && enabled) r.addView(label("›", Style.jost(this, 300), 14f, Style.ink(.4f), 0f, Gravity.END), LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8f) })
+                if (info) {} else if (enabled) r.setOnClickListener { hideSettingsSheet(); go() } else r.alpha = .4f
                 list.addView(r, LinearLayout.LayoutParams(-1, dp(56f)))
             }
-            // 1. 아이콘 COLOR / MONO / GILT — 시트를 닫지 않고 바로 바뀜
-            list.addView(segRow("아이콘", listOf("COLOR", "MONO", "GILT"), { repo.iconMode }) { repo.iconMode = it; refreshAll() }, LinearLayout.LayoutParams(-1, dp(56f))); line()
+            fun grp(en: String, kr: String, first: Boolean = false) {
+                val g = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM; setPadding(0, dp(if (first) 2f else 18f), 0, dp(6f)) }
+                g.addView(label(en, Style.jost(this, 400), 10f, Style.ink(.55f), .3f, Gravity.START), LinearLayout.LayoutParams(0, -2, 1f))
+                g.addView(label(kr, Style.kr(this, 300), 11f, 0xFF8C8478.toInt(), 0f, Gravity.END))
+                list.addView(g, LinearLayout.LayoutParams(-1, -2))
+            }
+            // ① 꾸미기 (모든 테마 공통)
+            grp("STYLE", "꾸미기", true)
             row("테마 · THE COLLECTION", Look.NAMES[look.theme], true) { showCollection() }; line()
-            row("보기 · DISPLAY", null, true) { displaySheet() }; line()
-            // 테마 전용 메뉴는 그 테마를 쓰는 동안에만 (성훈님 결정)
+            list.addView(segRow("아이콘", listOf("COLOR", "MONO", "GILT"), { repo.iconMode }) { repo.iconMode = it; refreshAll() }, LinearLayout.LayoutParams(-1, dp(60f))); line()
+            row("보기 · DISPLAY", "크기 · 색 · 글꼴", true) { displaySheet() }; line()
+            list.addView(segRow("움직임", listOf("부드럽게", "짧게", "끄기"), { look.motion }) { look.motion = it; refreshGrid() }, LinearLayout.LayoutParams(-1, dp(60f))); line()
+            // ② 지금 테마 전용 — 그 테마를 쓸 때만 보임 (다른 테마에서는 아예 없음 · 성훈님 결정). 왼쪽에 테마 색 세로선 하나
+            val thColor = when (look.theme) { Look.TRAIN -> V_INK; Look.LIBRARY -> 0xFFC0533F.toInt(); Look.HOUR -> 0xFFC9A96A.toInt(); else -> 0xFF2B2520.toInt() }
+            val outer = list
+            fun themeGroup(title: String, body: () -> Unit) {
+                grp(title, "이 테마만")
+                val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12f), 0, 0, 0) }
+                val wrap = FrameLayout(this)
+                wrap.addView(box, FrameLayout.LayoutParams(-1, -2))
+                wrap.addView(View(this).apply { setBackgroundColor(thColor) }, FrameLayout.LayoutParams(dp(1.5f), -1).apply { bottomMargin = dp(14f) })
+                list = box; body(); list = outer
+                outer.addView(wrap, LinearLayout.LayoutParams(-1, -2))
+            }
             when (look.theme) {
-                Look.CAPTION -> { row("표지 사진 · THE CAPTION", if (look.photos.isEmpty()) "기본" else "${look.photos.size}장", true) { pickPhotos() }; line() }
-                Look.TRAIN -> { row("여행 사진 · THE VOYAGE", if (look.trips.isEmpty()) "기본" else "${look.trips.size}장", true) { tripEditor() }; line()
-                    row("라벨 순서 · THE VOYAGE", if (look.trainOrder == 0) "세로" else "가로", true) { choiceSheet(2) }; line()
-                    row("바탕 · THE VOYAGE", if (look.voyDark) "블랙" else "밝게", true) { look.voyDark = !look.voyDark; applyTheme(look.theme) }; line() }
-                Look.HOUR -> { row("시계 문자판 · THE HOUR", if (look.hourDial == 0) "NOIR" else "IVOIRE", true) { choiceSheet(0) }; line() }
-                Look.LIBRARY -> { row("원고지 순서 · THE LIBRARY", if (look.libOrder == 0) "세로" else "가로", true) { choiceSheet(1) }; line()
-                    row("바탕 · THE LIBRARY", LIB_STYLES[look.libStyle].first, true) {
+                Look.TRAIN -> themeGroup("THE VOYAGE") {
+                    row("라벨 순서", if (look.trainOrder == 0) "세로" else "가로", true) { choiceSheet(2) }; line()
+                    row("바탕", if (look.voyDark) "블랙" else "밝게", true) { look.voyDark = !look.voyDark; applyTheme(look.theme) }; line()
+                    row("여행 사진", if (look.trips.isEmpty()) "기본" else "${look.trips.size}장", true) { tripEditor() }; line() }
+                Look.LIBRARY -> themeGroup("THE LIBRARY") {
+                    row("바탕", LIB_STYLES[look.libStyle].first, true) {
                         val items = LIB_STYLES.map { it.second }
                         pickSheet("THE LIBRARY · 바탕", items, items[look.libStyle], "서랍의 원고지와 펼친 책 모양이 바뀝니다. 표지와 음악 화면은 '밝게'만 아이보리, 나머지는 먹지입니다.") { pick ->
                             look.libStyle = items.indexOf(pick).coerceAtLeast(0); applyTheme(look.theme) }
-                    }; line() }
+                    }; line()
+                    row("원고지 순서", if (look.libOrder == 0) "세로" else "가로", true) { choiceSheet(1) }; line() }
+                Look.HOUR -> themeGroup("THE HOUR") { row("시계 문자판", if (look.hourDial == 0) "NOIR" else "IVOIRE", true) { choiceSheet(0) }; line() }
+                Look.CAPTION -> themeGroup("THE CAPTION") { row("표지 사진", if (look.photos.isEmpty()) "기본" else "${look.photos.size}장", true) { pickPhotos() }; line() }
             }
-            row("HA 연결 · 미디어", if (look.haToken.isBlank()) "연결 안 됨" else "토큰 있음", true) { tokenSheet() }; line()
-            FineVol.init(getSystemService(AUDIO_SERVICE) as android.media.AudioManager)
-            row("폰 볼륨 · PHONE", FineVol.note, false) {}; line()
-            val need = permNeed()
-            row("권한 · 알림 점과 미디어", if (need == 0) "모두 허용됨" else "${need}개 필요", true) { permSheet() }; line()
-            row("터치 기록 보기 · 진단", null, true) { touchLogSheet() }; line()
+            // ③ 폴더와 앱
+            grp("FOLDERS", "폴더와 앱")
             row("폴더 추가", null, repo.folderCount() < AppRepo.MAX_FOLDERS) {
                 // 저장을 눌러야 폴더가 생김 (취소하면 아무것도 안 생김)
                 renameSheet("NEW FOLDER", repo.newFolderName(), null, selectAll = true) { repo.addFolder(it); refreshAll() }
             }; line()
             val hc = repo.hiddenApps().size
             row("숨긴 앱", "$hc", hc > 0) { hiddenSheet() }; line()
-            row("폴더 이름 모두 원래대로", null, repo.hasRenamedDefaults()) { repo.resetAllNames(); refreshAll() }; line()
+            row("폴더 이름 모두 원래대로", null, repo.hasRenamedDefaults(), chev = false) { repo.resetAllNames(); refreshAll() }; line()
             val dd = repo.deletedDefaults().size
             if (dd > 0) { row("기본 폴더 되살리기", "$dd", repo.folderCount() < AppRepo.MAX_FOLDERS) { repo.restoreDefaults(); refreshAll() }; line() }
-            row("기본 홈 앱 바꾸기", null, true) { openSafely(Intent(Settings.ACTION_HOME_SETTINGS)) }
+            // ④ 연결
+            grp("CONNECT", "연결")
+            row("HA 연결 · 미디어", if (look.haToken.isBlank()) "연결 안 됨" else "토큰 있음", true) { tokenSheet() }; line()
+            val need = permNeed()
+            row("권한 · 알림 점과 미디어", if (need == 0) "모두 허용됨" else "${need}개 필요", true) { permSheet() }; line()
+            // ⑤ 이 폰
+            grp("DEVICE", "이 폰")
+            row("기본 홈 앱 바꾸기", null, true) { openSafely(Intent(Settings.ACTION_HOME_SETTINGS)) }; line()
+            FineVol.init(getSystemService(AUDIO_SERVICE) as android.media.AudioManager)
+            row("폰 볼륨 · PHONE", FineVol.note, true, info = true) {}; line()
+            // ⑥ 문제 확인
+            grp("DIAGNOSTICS", "문제 확인")
+            row("터치 기록 보기", null, true) { touchLogSheet() }
             val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(list) }
             list.measure(View.MeasureSpec.makeMeasureSpec(root.width - dp(48f), View.MeasureSpec.EXACTLY), View.MeasureSpec.UNSPECIFIED)
             sh.addView(sv, LinearLayout.LayoutParams(-1, minOf(list.measuredHeight, (root.height * .68f).toInt())))
@@ -1791,33 +1839,226 @@ class MainActivity : ComponentActivity(), MediaHost {
             s.background = GradientDrawable().apply { if (on) setColor(Style.INK) else setStroke(dp(1f), Style.ink(.3f)) }
         }
         val latin = opts.all { it.all { c -> c.code < 128 } }
-        val w = if (opts.size > 3) 52f else 60f
+        val w = if (opts.size > 3) 52f else 76f   // 샤넬팀: 세 칸 76×44 · 사이 8
         opts.forEachIndexed { i, n ->
-            val s = label(n, if (latin) Style.jost(this, 400) else Style.kr(this, 400), if (latin) 10f else 11.5f, Style.INK, if (latin) .2f else 0f).apply {
+            val s = label(n, if (latin) Style.jost(this, 400) else Style.kr(this, 400), if (latin) 10f else 13f, Style.INK, if (latin) .2f else 0f).apply {
                 gravity = Gravity.CENTER
                 setOnClickListener { set(i); paint() }
             }
             segs += s
-            ir.addView(s, LinearLayout.LayoutParams(dp(w), dp(32f)).apply { if (i > 0) leftMargin = dp(6f) })
+            ir.addView(s, LinearLayout.LayoutParams(dp(w), dp(44f)).apply { if (i > 0) leftMargin = dp(8f) })
         }
         paint()
         return ir
     }
 
-    /** 보기 · DISPLAY: 폴더 크기 · 앱 아이콘 크기 · 이름 크기 · 이름 색 */
+    /** 보기 · DISPLAY (build-39): 미리보기 + 크기 슬라이드 + 간격·굵기·이름·글꼴 + 색 — 모든 테마 공통 (성훈님 결정) */
     private fun displaySheet() {
         openSheet { sh ->
-            sheetKicker(sh, "DISPLAY")
+            sheetKicker(sh, "DISPLAY · 보기 — 모든 테마 공통")
             fun line() = sh.addView(View(this).apply { setBackgroundColor(Style.ink(.1f)) }, LinearLayout.LayoutParams(-1, hair(.5f)))
-            val three = listOf("작게", "기본", "크게")
-            sh.addView(segRow("폴더 크기", three, { look.folderSize }) { look.folderSize = it; refreshAll() }, LinearLayout.LayoutParams(-1, dp(56f))); line()
-            sh.addView(segRow("앱 아이콘", three, { look.iconSize }) { look.iconSize = it; refreshAll() }, LinearLayout.LayoutParams(-1, dp(56f))); line()
-            sh.addView(segRow("이름 크기", three, { look.nameSize }) { look.nameSize = it; refreshAll() }, LinearLayout.LayoutParams(-1, dp(56f))); line()
-            sh.addView(segRow("이름 색", listOf("기본", "진하게", "금색", "옅게"), { look.nameColor }) { look.nameColor = it; refreshAll() }, LinearLayout.LayoutParams(-1, dp(56f)))
-            sh.addView(label("'크게'는 폴더 30개가 한 화면에 들어가는 가장 큰 크기입니다.", Style.kr(this, 300), 12f, Style.ink(.5f), 0f, Gravity.START).apply { setLineSpacing(dpf(3f), 1f) },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12f) })
+            fun grp(en: String, kr: String) {
+                val g = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM; setPadding(0, dp(16f), 0, dp(4f)) }
+                g.addView(label(en, Style.jost(this, 400), 10f, Style.ink(.55f), .3f, Gravity.START), LinearLayout.LayoutParams(0, -2, 1f))
+                g.addView(label(kr, Style.kr(this, 300), 11f, 0xFF8C8478.toInt(), 0f, Gravity.END))
+                sh.addView(g, LinearLayout.LayoutParams(-1, -2))
+            }
+            // 미리보기: 지금 테마 바탕에 폴더 이름 둘 + 앱 넷 (값을 움직이면 바로 바뀜)
+            val dark = !(look.theme == Look.LIBRARY && !Dk.lib) && !(look.theme == Look.TRAIN && !Dk.voy)
+            val pv = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; setPadding(dp(14f), dp(14f), dp(14f), dp(10f))
+                setBackgroundColor(when (look.theme) { Look.TRAIN -> if (Dk.voy) Dk.VOY_BG else 0xFFF1ECE2.toInt(); Look.LIBRARY -> if (Dk.lib) Dk.LIB_BG else 0xFFFBF8F1.toInt(); else -> 0xFF111111.toInt() })
+            }
+            fun buildPreview() {
+                pv.removeAllViews()
+                val chips = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                repo.folders().take(2).forEachIndexed { i, id ->
+                    val base = when (look.theme) { Look.TRAIN -> V_INK; else -> if (dark) Style.ivory(.92f) else Style.ink(.88f) }
+                    val chip = label(shortName(repo.nameOf(id)), nameFace(400), 14f * look.folderScale + look.nameDelta, look.nameColorOn(!dark, base), 0f, Gravity.START or Gravity.CENTER_VERTICAL).apply {
+                        setPadding(dp(12f), 0, 0, 0)
+                        background = if (look.theme == Look.TRAIN) android.graphics.drawable.ColorDrawable(V_LABEL) else GradientDrawable().apply { setStroke(hair(.75f), if (dark) Style.ivory(.3f) else Style.ink(.2f)) }
+                    }
+                    if (i == 0) chip.foreground = object : android.graphics.drawable.Drawable() {
+                        val pp = Paint(Paint.ANTI_ALIAS_FLAG)
+                        override fun draw(c: Canvas) { pp.color = if (look.dotColor != 0) look.dotColor else Style.ROUGE; c.drawCircle(bounds.right - dpf(10f), bounds.top + dpf(10f), dpf(4f), pp) }
+                        override fun setAlpha(alpha: Int) {}
+                        override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
+                        @Deprecated("Deprecated in Java") override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
+                    }
+                    chips.addView(chip, LinearLayout.LayoutParams(0, dp(40f * look.folderScale), 1f).apply { if (i > 0) leftMargin = dp(10f) })
+                }
+                pv.addView(chips, LinearLayout.LayoutParams(-1, -2))
+                val apps = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_HORIZONTAL }
+                repo.apps.take(4).forEach { a ->
+                    val c = appCell(a, false, null, onDark = dark)
+                    c.setOnTouchListener(null); c.setOnClickListener(null); c.isClickable = false
+                    apps.addView(c, LinearLayout.LayoutParams(0, -2, 1f))
+                }
+                pv.addView(apps, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12f) })
+            }
+            buildPreview()
+            sh.addView(pv, LinearLayout.LayoutParams(-1, -2))
+            sh.addView(label("미리보기 · 지금 테마(${Look.NAMES[look.theme]})로 보여 줍니다", Style.kr(this, 300), 11f, Style.ink(.5f), 0f, Gravity.START), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4f) })
+            var dirty = false
+            fun slide(title: String, min: Float, max: Float, step: Float, get: Float, def: Float, fmt: (Float) -> String, set: (Float) -> Unit) {
+                val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                r.addView(label(title, Style.kr(this, 300), 13.5f, Style.INK, 0f, Gravity.START or Gravity.CENTER_VERTICAL), LinearLayout.LayoutParams(dp(78f), -2))
+                val num = label(fmt(get), Style.jost(this, 400), 13f, 0xFF2B2520.toInt(), 0f, Gravity.END or Gravity.CENTER_VERTICAL).apply { fontFeatureSettings = "tnum" }
+                val sl = Slide(this, min, max, step, get, def)
+                sl.onChange = { v -> set(v); num.text = fmt(v); buildPreview(); dirty = true }
+                sl.onRelease = { refreshAll(); dirty = false }
+                // 값을 두 번 누르면 기본값
+                var last = 0L
+                num.setOnClickListener { val t = android.os.SystemClock.uptimeMillis(); if (t - last < 400) sl.reset(); last = t }
+                r.addView(sl, LinearLayout.LayoutParams(0, dp(40f), 1f).apply { leftMargin = dp(4f) })
+                r.addView(num, LinearLayout.LayoutParams(dp(50f), -1))
+                sh.addView(r, LinearLayout.LayoutParams(-1, dp(52f)))
+            }
+            grp("SIZE", "크기")
+            slide("앱 아이콘", 36f, 72f, 1f, look.iconDpV, 52f, { "${it.toInt()}dp" }) { look.iconDpV = it }
+            slide("폴더 크기", 80f, 130f, 1f, look.folderPct.toFloat(), 100f, { "${it.toInt()}%" }) { look.folderPct = it.toInt() }
+            slide("폴더 이름", 12f, 20f, .5f, look.folderNameSp, 14f, { if (it % 1f == 0f) "${it.toInt()}sp" else "${it}sp" }) { look.folderNameSp = it }
+            slide("앱 이름", 10f, 16f, .5f, look.appNameSp, 11f, { if (it % 1f == 0f) "${it.toInt()}sp" else "${it}sp" }) { look.appNameSp = it }
+            sh.addView(segRow("간격", listOf("좁게", "기본", "넓게"), { look.gapMode }) { look.gapMode = it; buildPreview(); refreshAll() }, LinearLayout.LayoutParams(-1, dp(56f))); line()
+            sh.addView(segRow("글자 굵기", listOf("가늘게", "기본", "굵게"), { look.weightMode }) { look.weightMode = it; buildPreview(); refreshAll() }, LinearLayout.LayoutParams(-1, dp(56f))); line()
+            sh.addView(segRow("앱 이름", listOf("보이기", "숨기기"), { if (look.showAppNames) 0 else 1 }) { look.showAppNames = it == 0; buildPreview(); refreshAll() }, LinearLayout.LayoutParams(-1, dp(56f))); line()
+            sh.addView(segRow("이름 글꼴", listOf("테마", "고딕", "명조"), { look.fontMode }) { look.fontMode = it; buildPreview(); refreshAll() }, LinearLayout.LayoutParams(-1, dp(56f))); line()
+            grp("COLOR", "색 · 모든 테마 공통")
+            fun colorRow(title: String, target: Int, cur: Int) {
+                val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; background = pressedBg() }
+                r.addView(label(title, Style.kr(this, 300), 14f, Style.INK, 0f, Gravity.START or Gravity.CENTER_VERTICAL), LinearLayout.LayoutParams(0, -2, 1f))
+                r.addView(label(if (cur == 0) "테마 기본" else colorName(cur), Style.kr(this, 300), 13f, Style.ink(.55f), 0f, Gravity.END))
+                r.addView(View(this).apply { background = swatch(cur, target) }, LinearLayout.LayoutParams(dp(22f), dp(22f)).apply { leftMargin = dp(10f) })
+                r.addView(label("›", Style.jost(this, 300), 14f, Style.ink(.4f), 0f, Gravity.END), LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8f) })
+                r.setOnClickListener { colorSheet(target) }
+                sh.addView(r, LinearLayout.LayoutParams(-1, dp(56f))); line()
+            }
+            colorRow("폴더 이름", 0, look.folderColor)
+            colorRow("앱 이름", 1, look.appColor)
+            colorRow("알림 점", 2, look.dotColor)
+            val foot = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            foot.addView(label("짧은 눈금이 기본값입니다 · 값을 두 번 누르면 기본값으로", Style.kr(this, 300), 11f, Style.ink(.5f), 0f, Gravity.START), LinearLayout.LayoutParams(0, -2, 1f))
+            foot.addView(label("모두 기본값으로", Style.kr(this, 400), 12.5f, Style.INK, 0f, Gravity.END).apply {
+                background = UnderLine(Style.INK, dpf(1f), 0f)
+                setPadding(0, dp(8f), 0, dp(8f))
+                setOnClickListener {
+                    look.iconDpV = 52f; look.folderPct = 100; look.folderNameSp = 14f; look.appNameSp = 11f; look.gapMode = 1; look.weightMode = 1
+                    look.showAppNames = true; look.fontMode = 0; look.folderColor = 0; look.appColor = 0; look.dotColor = 0
+                    refreshAll(); displaySheet()
+                }
+            })
+            sh.addView(foot, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10f) })
         }
     }
+
+    /** 색 견본 (0 = 테마 기본: 반은 테마 색, 반은 아이보리) */
+    private fun swatch(c: Int, target: Int): android.graphics.drawable.Drawable =
+        if (c != 0) GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(c); setStroke(hair(.75f), Style.ink(.35f)) }
+        else object : android.graphics.drawable.Drawable() {
+            val pp = Paint(Paint.ANTI_ALIAS_FLAG)
+            override fun draw(cv: Canvas) {
+                val b = android.graphics.RectF(bounds); val r = b.width() / 2
+                cv.save(); val path = android.graphics.Path().apply { addCircle(b.centerX(), b.centerY(), r, android.graphics.Path.Direction.CW) }; cv.clipPath(path)
+                pp.color = if (target == 2) Style.ROUGE else when (look.theme) { Look.TRAIN -> V_INK; Look.HOUR -> H_GOLD; else -> Style.INK }
+                cv.drawRect(b, pp); pp.color = 0xFFEFE8DA.toInt()
+                cv.drawPath(android.graphics.Path().apply { moveTo(b.right, b.top); lineTo(b.right, b.bottom); lineTo(b.left, b.bottom); close() }, pp)
+                cv.restore(); pp.style = Paint.Style.STROKE; pp.strokeWidth = dpf(.75f); pp.color = Style.ink(.35f); cv.drawCircle(b.centerX(), b.centerY(), r - dpf(.4f), pp); pp.style = Paint.Style.FILL
+            }
+            override fun setAlpha(alpha: Int) {}
+            override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
+            @Deprecated("Deprecated in Java") override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
+        }
+
+    private val presetColors = listOf(0 to "테마 기본", 0xFFEFE8DA.toInt() to "아이보리", 0xFFC9A96A.toInt() to "금색", 0xFF1B2A4A.toInt() to "남색", 0xFF7A2E35.toInt() to "버건디", 0xFF0A0A0A.toInt() to "검정")
+    private fun colorName(c: Int): String {
+        presetColors.firstOrNull { it.first == c }?.let { return it.second }
+        val a = Color.alpha(c) * 100 / 255
+        return "#%06X".format(c and 0xFFFFFF) + if (a < 100) " · $a%" else ""
+    }
+
+    /** 색 고르기: 테마 추천 · 색 · 밝기 · 진하기 · 최근 쓴 색 · 취소/적용 (target 0 폴더 이름 · 1 앱 이름 · 2 알림 점) */
+    private fun colorSheet(target: Int) {
+        val title = listOf("폴더 이름", "앱 이름", "알림 점")[target]
+        var cur = listOf(look.folderColor, look.appColor, look.dotColor)[target]
+        openSheet { sh ->
+            sheetKicker(sh, "COLOR · $title")
+            val dark = !(look.theme == Look.LIBRARY && !Dk.lib) && !(look.theme == Look.TRAIN && !Dk.voy)
+            val pvBg = when (look.theme) { Look.TRAIN -> if (Dk.voy) Dk.VOY_BG else 0xFFF1ECE2.toInt(); Look.LIBRARY -> if (Dk.lib) Dk.LIB_BG else 0xFFFBF8F1.toInt(); else -> 0xFF111111.toInt() }
+            val baseCol = if (target == 2) Style.ROUGE else when (look.theme) { Look.TRAIN -> V_INK; else -> if (dark) Style.ivory(.92f) else Style.ink(.88f) }
+            val pv = FrameLayout(this).apply { setBackgroundColor(pvBg) }
+            val chip = label("", Style.kr(this, 400), 15f, Style.INK, 0f, Gravity.CENTER).apply { setPadding(dp(14f), 0, dp(14f), 0) }
+            if (look.theme == Look.TRAIN && target != 2) chip.setBackgroundColor(V_LABEL)
+            pv.addView(chip, FrameLayout.LayoutParams(-2, dp(40f), Gravity.CENTER))
+            val warn = label("", Style.kr(this, 300), 11f, 0xFFA3222B.toInt(), 0f, Gravity.START)
+            fun paintPv() {
+                val c = if (cur == 0) baseCol else cur
+                if (target == 2) { chip.text = "●  새 알림"; chip.setTextColor(c) } else { chip.text = if (target == 0) "쇼핑·온라인" else "카카오톡"; chip.setTextColor(c) }
+                // 바탕과 너무 비슷하면 알려 줌 (자동으로 바꾸지 않음)
+                val bg = if (look.theme == Look.TRAIN && target != 2) V_LABEL else pvBg
+                val lum = { x: Int -> (Color.red(x) * .299 + Color.green(x) * .587 + Color.blue(x) * .114) / 255 }
+                warn.text = if (cur != 0 && (kotlin.math.abs(lum(c) - lum(bg)) < .18 || Color.alpha(c) < 90)) "이 테마 바탕에서는 흐리게 보입니다" else ""
+            }
+            sh.addView(pv, LinearLayout.LayoutParams(-1, dp(84f)))
+            sh.addView(warn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4f) })
+            fun grp(en: String, kr: String) {
+                val g = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM; setPadding(0, dp(14f), 0, dp(8f)) }
+                g.addView(label(en, Style.jost(this, 400), 10f, Style.ink(.55f), .3f, Gravity.START), LinearLayout.LayoutParams(0, -2, 1f))
+                g.addView(label(kr, Style.kr(this, 300), 11f, 0xFF8C8478.toInt(), 0f, Gravity.END))
+                sh.addView(g, LinearLayout.LayoutParams(-1, -2))
+            }
+            // 띠 값: 지금 색에서 거꾸로 (대략)
+            val hsv = FloatArray(3); Color.colorToHSV(if (cur == 0) baseCol else cur, hsv)
+            val hueBar = ColorBar(this, 0).apply { value = hsv[0] / 360f }
+            val toneBar = ColorBar(this, 1).apply { hue = hsv[0]; value = if (cur == 0) .5f else (1 - hsv[1] / 2f) * hsv[2] }
+            val alphaBar = ColorBar(this, 2).apply { hue = hsv[0]; tone = toneBar.value; value = if (cur == 0) 1f else Color.alpha(cur) / 255f }
+            val swRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            val marks = ArrayList<Pair<Int, View>>()
+            fun paintMarks() = marks.forEach { (c, v) -> v.foreground = if (c == cur) GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(2f), Style.INK) } else null }
+            fun fromBars() {
+                val base = ColorBar.hsl(hueBar.value * 360f, .7f, toneBar.value)
+                cur = Color.argb((alphaBar.value * 255).toInt().coerceIn(20, 255), Color.red(base), Color.green(base), Color.blue(base))
+                toneBar.hue = hueBar.value * 360f; alphaBar.hue = hueBar.value * 360f; alphaBar.tone = toneBar.value
+                toneBar.invalidate(); alphaBar.invalidate(); paintPv(); paintMarks()
+            }
+            grp("THÈME", "테마 추천")
+            presetColors.forEach { (c, n) ->
+                val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
+                val sw = View(this).apply { background = swatch(c, target) }
+                col.addView(sw, LinearLayout.LayoutParams(dp(34f), dp(34f)))
+                col.addView(label(n, Style.kr(this, 300), 10f, Style.ink(.6f), 0f), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(5f) })
+                col.setOnClickListener { cur = c; paintPv(); paintMarks() }
+                marks += c to sw
+                swRow.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
+            }
+            sh.addView(swRow, LinearLayout.LayoutParams(-1, -2))
+            grp("COULEUR", "색"); sh.addView(hueBar, LinearLayout.LayoutParams(-1, dp(26f)))
+            grp("LUMIÈRE", "밝기"); sh.addView(toneBar, LinearLayout.LayoutParams(-1, dp(26f)))
+            grp("INTENSITÉ", "진하기"); sh.addView(alphaBar, LinearLayout.LayoutParams(-1, dp(26f)))
+            hueBar.onChange = { fromBars() }; toneBar.onChange = { fromBars() }; alphaBar.onChange = { fromBars() }
+            val rec = look.recentColors
+            if (rec.isNotEmpty()) {
+                grp("RÉCENT", "최근 쓴 색")
+                val rr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                rec.forEach { c -> val v = View(this).apply { background = swatch(c, target); setOnClickListener { cur = c; paintPv(); paintMarks() } }; marks += c to v
+                    rr.addView(v, LinearLayout.LayoutParams(dp(28f), dp(28f)).apply { rightMargin = dp(12f) }) }
+                sh.addView(rr, LinearLayout.LayoutParams(-1, -2))
+            }
+            val btns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            btns.addView(label("취소", Style.kr(this, 400), 14f, Style.INK, 0f, Gravity.CENTER).apply {
+                background = GradientDrawable().apply { setStroke(hair(1f), Style.ink(.6f)) }; setOnClickListener { displaySheet() } }, LinearLayout.LayoutParams(0, dp(48f), 1f))
+            btns.addView(label("적용", Style.kr(this, 500), 14f, Style.IVORY, 0f, Gravity.CENTER).apply {
+                setBackgroundColor(Style.INK)
+                setOnClickListener {
+                    when (target) { 0 -> look.folderColor = cur; 1 -> look.appColor = cur; else -> look.dotColor = cur }
+                    look.addRecent(cur); refreshAll(); refreshBadgesStyle(); displaySheet()
+                } }, LinearLayout.LayoutParams(0, dp(48f), 1f).apply { leftMargin = dp(10f) })
+            sh.addView(btns, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24f) })
+            paintPv(); paintMarks()
+        }
+    }
+
+    /** 알림 점 색이 바뀌면 열린 카드의 점도 다시 그림 */
+    private fun refreshBadgesStyle() { if (cardFolder != null && card.visibility == View.VISIBLE) refreshCardApps() }
 
     /** 두 가지 중 고르기 시트 (0 HOUR 문자판 · 1 LIBRARY 원고지 순서) — 누르면 바로 바뀜 */
     private fun choiceSheet(kind: Int) {
