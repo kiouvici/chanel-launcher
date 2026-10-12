@@ -610,7 +610,7 @@ internal fun MainActivity.showVoyageOpen(id: String) {
     val back = txt(shortName(repo.nameOf(id)), Style.kr(this, 500), 26f, V_INK, 0f, Gravity.CENTER).apply { setBackgroundColor(V_LABEL); visibility = View.GONE }
     card.addView(back, FrameLayout.LayoutParams(-1, -1))
     card.setTag(TAG_FLIP, back)
-    themeContent = card; motionOpen(card, { a -> layer.background?.alpha = (a * 255).toInt() }, if (motionMode == 0) back else null)
+    themeContent = card; motionOpen(card, if (motionMode == 0) back else null) { a -> layer.background?.alpha = (a * 255).toInt() }
 }
 
 /** ⑤ CAPTION 열린 폴더: 사진 위에 제목과 앱 목록 2열 (한 화면, 넘치면 목록만 스크롤) */
@@ -639,7 +639,7 @@ internal fun MainActivity.showCaptionOpen(id: String) {
     layer.addView(sv, FrameLayout.LayoutParams(-1, -1).apply { leftMargin = L.x(28f); rightMargin = L.x(28f); topMargin = L.y(304f); bottomMargin = navBot + dp(76f) })
     root.addView(layer, FrameLayout.LayoutParams(-1, -1))
     themeOpen = layer
-    themeContent = layer; motionOpen(layer, null)
+    themeContent = layer; motionOpen(layer, null, null)
 }
 
 /** ② LIBRARY 열린 폴더: 펼친 책 두 쪽 — 왼쪽 VOL·제목·앱 수 + 앱 2열×4, 오른쪽 앱 2열×6 (한 번에 20개), 넘기기, 빨간 리본 CLOSE */

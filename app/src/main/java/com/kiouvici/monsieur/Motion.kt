@@ -55,7 +55,7 @@ internal fun MainActivity.nameFace(w: Int): Typeface {
 }
 
 /** 열 때: 누른 폴더 자리에서 커지며 펼쳐짐. scrim(0~1)은 뒤 어둡게 */
-internal fun MainActivity.motionOpen(content: View, scrim: ((Float) -> Unit)?, flipBack: View? = null) {
+internal fun MainActivity.motionOpen(content: View, flipBack: View? = null, scrim: ((Float) -> Unit)?) {
     when (motionMode) {
         2 -> { scrim?.invoke(1f); return }
         1 -> {
