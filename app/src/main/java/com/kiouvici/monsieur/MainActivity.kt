@@ -1163,7 +1163,7 @@ class MainActivity : ComponentActivity(), MediaHost {
 
     /** 열린 폴더 = 꺼내 든 편지 카드 (샤넬팀 B안): 8dp 안쪽 1.5dp 검은 테두리, 큰 금 번호, CLOSE 검정 채움 */
     private fun buildCard() {
-        card = FrameLayout(this).apply {
+        card = SwipeLayer(this) { hideCard() }.apply {
             background = Style.tile(this@MainActivity, Style.PAPER, 256f)
             foreground = InsetLine(8f, 1.5f)
             elevation = dpf(24f)

@@ -543,7 +543,7 @@ internal fun MainActivity.showHourOpen(id: String) {
     footVisible(false)
     cardFolder = id
     val list = repo.appsIn(id)
-    val layer = FrameLayout(this).apply { setBackgroundColor(Color.argb(150, 0, 0, 0)); elevation = dpf(24f); isClickable = true; setOnClickListener { hideCard() } }
+    val layer = SwipeLayer(this) { hideCard() }.apply { setBackgroundColor(Color.argb(150, 0, 0, 0)); elevation = dpf(24f); isClickable = true; setOnClickListener { hideCard() } }
     val L = Lay(this, layer, root.width, root.height)
     val top = maxOf(sbTop + dp(40f), L.y(150f))
     val plate = FrameLayout(this).apply { background = plateDrawable(this@showHourOpen); elevation = dpf(12f); isClickable = true }
@@ -578,7 +578,7 @@ internal fun MainActivity.showVoyageOpen(id: String) {
     cardFolder = id
     val list = repo.appsIn(id)
     val no = repo.folders().indexOf(id) + 1
-    val layer = FrameLayout(this).apply { setBackgroundColor(Color.argb(115, 0, 0, 0)); elevation = dpf(24f); isClickable = true; setOnClickListener { hideCard() } }
+    val layer = SwipeLayer(this) { hideCard() }.apply { setBackgroundColor(Color.argb(115, 0, 0, 0)); elevation = dpf(24f); isClickable = true; setOnClickListener { hideCard() } }
     val L = Lay(this, layer, root.width, root.height)
     val cardW = root.width - L.x(40f)
     val top = maxOf(sbTop + dp(40f), L.y(120f))
@@ -614,7 +614,7 @@ internal fun MainActivity.showCaptionOpen(id: String) {
     hideThemeOpen()
     footVisible(false)
     cardFolder = id
-    val layer = FrameLayout(this).apply { elevation = dpf(24f); isClickable = true }
+    val layer = SwipeLayer(this) { hideCard() }.apply { elevation = dpf(24f); isClickable = true }
     layer.addView(View(this).apply { background = themeCover.photoDrawable() }, FrameLayout.LayoutParams(-1, -1))
     layer.addView(View(this).apply {
         background = vgrad(Color.argb(90, 10, 10, 10), Color.argb(200, 10, 10, 10), Color.argb(240, 10, 10, 10), Color.argb(245, 10, 10, 10))
@@ -647,7 +647,7 @@ internal fun MainActivity.showLibraryOpen(id: String, page: Int = 0) {
     val pages = maxOf(1, (list.size + 19) / 20)
     val pg = page.coerceIn(0, pages - 1)
     val chunk = list.drop(pg * 20).take(20)
-    val layer = FrameLayout(this).apply { elevation = dpf(24f); isClickable = true }
+    val layer = SwipeLayer(this) { hideCard() }.apply { elevation = dpf(24f); isClickable = true }
     layer.addView(View(this).apply { setBackgroundColor(if (Dk.lib) Color.argb(140, 0, 0, 0) else Color.argb(72, 60, 42, 22)); setOnClickListener { hideCard() } }, FrameLayout.LayoutParams(-1, -1))
     val L = Lay(this, layer, root.width, root.height)
     fun ink(a: Float) = if (Dk.inkPage) Dk.li(a) else tint(a, Style.INK)   // 종이 안(A·C·D·밝게)은 먹 글자, 검정 책(B)은 아이보리

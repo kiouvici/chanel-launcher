@@ -156,3 +156,45 @@ internal fun MainActivity.launchOpts(v: View?): android.os.Bundle? = try {
         else -> android.app.ActivityOptions.makeCustomAnimation(this, 0, 0).toBundle()
     }
 } catch (e: Exception) { null }
+
+/**
+ * 열린 폴더 화면: 좌우나 아래로 쓸면 닫힘 (성훈님, build-39)
+ * 안의 목록이 맨 위가 아닐 때 아래로 쓸면 목록 스크롤이 먼저 · 앱을 길게 눌러 끄는 중에는 가로채지 않음
+ */
+class SwipeLayer(ctx: android.content.Context, private val onClose: () -> Unit) : android.widget.FrameLayout(ctx) {
+    private val d = ctx.resources.displayMetrics.density
+    private var x0 = 0f; private var y0 = 0f; private var t0 = 0L; private var done = false
+    private var vt: android.view.VelocityTracker? = null
+    override fun onInterceptTouchEvent(e: android.view.MotionEvent): Boolean = check(e)
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(e: android.view.MotionEvent): Boolean { check(e); return super.onTouchEvent(e) || true }
+    private fun check(e: android.view.MotionEvent): Boolean {
+        when (e.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> { x0 = e.x; y0 = e.y; t0 = e.eventTime; done = false; vt?.recycle(); vt = android.view.VelocityTracker.obtain(); vt?.addMovement(e) }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                vt?.addMovement(e)
+                if (done) return true
+                val dx = e.x - x0; val dy = e.y - y0
+                val side = kotlin.math.abs(dx) > 48 * d && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.4f
+                val down = dy > 56 * d && dy > kotlin.math.abs(dx) * 1.4f && !scrollableAbove(this, x0, y0)
+                // 빠르게 튕긴 것도 (0.25초 안 28dp)
+                val quick = e.eventTime - t0 < 250 && ((kotlin.math.abs(dx) > 28 * d && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.4f) ||
+                    (dy > 28 * d && dy > kotlin.math.abs(dx) * 1.4f && !scrollableAbove(this, x0, y0)))
+                if (side || down || quick) { done = true; performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK); onClose(); return true }
+            }
+        }
+        return false
+    }
+    /** 손가락 아래에 위로 더 스크롤할 수 있는 목록이 있는지 */
+    private fun scrollableAbove(v: View, x: Float, y: Float): Boolean {
+        if (v !== this && v.canScrollVertically(-1)) return true
+        if (v is ViewGroup) for (i in v.childCount - 1 downTo 0) {
+            val c = v.getChildAt(i)
+            if (c.visibility != View.VISIBLE) continue
+            if (x >= c.left + c.translationX && x < c.right + c.translationX && y >= c.top + c.translationY && y < c.bottom + c.translationY) {
+                if (scrollableAbove(c, x - c.left - c.translationX + c.scrollX, y - c.top - c.translationY + c.scrollY)) return true
+            }
+        }
+        return false
+    }
+}
