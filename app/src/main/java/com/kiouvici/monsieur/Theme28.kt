@@ -27,7 +27,7 @@ import kotlin.math.sin
  *  · VOYAGE 줄무늬 띠 · 직조 라벨 · 대표사진 칸
  *  · LIBRARY 원고지
  *  · HOUR 세라믹 판 · 창
- *  · 미디어 볼륨 막대 (PHONE / MARANTZ, 마란츠 상한 50)  */
+ *  · 미디어 볼륨 막대 (PHONE / MARANTZ, 마란츠 상한 60)  */
 
 const val H_GOLD = 0xFFC9B58C.toInt()      // 베이지 골드 (선에만)
 const val H_IVORY = 0xFFEDE8DF.toInt()
@@ -378,10 +378,10 @@ class Manuscript(ctx: Context) : View(ctx) {
 }
 
 // ═════════ 미디어 볼륨 막대 ═════════
-/** PHONE(0~150, 삼성 볼륨 창과 같은 숫자) / MARANTZ(0~50) 볼륨 — 막대 오른쪽 끝 = max. 옆으로 끌 때만 움직임 */
+/** PHONE(0~150, 삼성 볼륨 창과 같은 숫자) / MARANTZ(0~60) 볼륨 — 막대 오른쪽 끝 = max. 옆으로 끌 때만 움직임 */
 class VolBar(ctx: Context, private val style: Int, private val color: Int, private val dimColor: Int) : View(ctx) {
     companion object { const val TICKS = 0; const val LINE_TAB = 1; const val LINE_DOT = 2; const val RULER = 3; const val DOTS = 4 }
-    /** 단계 수 (폰 150 · Marantz 50) — 막대 오른쪽 끝 = max */
+    /** 단계 수 (폰 150 · Marantz 60) — 막대 오른쪽 끝 = max */
     var max = 100; set(v) { field = v.coerceAtLeast(1); invalidate() }
     var value = 0; set(v) { field = v.coerceIn(0, max); invalidate() }
     var onChange: ((Int) -> Unit)? = null
@@ -448,7 +448,7 @@ class VolBar(ctx: Context, private val style: Int, private val color: Int, priva
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 // 손잡이(지금 값 자리) 근처를 잡았을 때만 볼륨 — 나머지 자리에서 옆으로 밀면 화면 넘기기 (볼륨이 먹히던 것)
-                if (kotlin.math.abs(e.x - knobX()) > 28 * d) return false
+                if (kotlin.math.abs(e.x - knobX()) > 56 * d) return false // 손잡이 좌우 28→56dp (build-37)
                 downX = e.x; downY = e.y; startV = value; mode = 0; return true
             }
             MotionEvent.ACTION_MOVE -> {
