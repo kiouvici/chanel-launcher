@@ -45,11 +45,11 @@ internal fun MainActivity.themeBox() {
     when (t) {
         Look.LIBRARY -> {
             // 원고지: 아이보리 종이 (책·나무 버림 — 성훈님 선택)
-            box.background = android.graphics.drawable.LayerDrawable(arrayOf(android.graphics.drawable.ColorDrawable(0xFFF3EEE3.toInt()), Style.tile(this, Style.PAPER, 300f)))
+            box.background = Dk.libBg(this)
             top = L.y(36f); hdrH = L.y(112f) - top; side = L.x(12f)
             val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            col.addView(txt("THE LIBRARY · LE MANUSCRIT", Style.jost(this, 500), 11f, 0xFF8A7A66.toInt(), .22f))
-            val sn = txt("", Fonts.serifI(this), 24f, 0xFF3B3128.toInt()).apply { maxLines = 1 }; libSentence = sn
+            col.addView(txt("THE LIBRARY · LE MANUSCRIT", Style.jost(this, 500), 11f, if (Dk.lib) Dk.LIB_SUB else 0xFF8A7A66.toInt(), .22f))
+            val sn = txt("", Fonts.serifI(this), 24f, if (Dk.lib) Dk.LIB_TX else 0xFF3B3128.toInt()).apply { maxLines = 1 }; libSentence = sn
             col.addView(sn, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6f) })
             hdr.addView(col, FrameLayout.LayoutParams(-1, -2).apply { leftMargin = L.x(12f); topMargin = L.y(8f) })
         }
@@ -113,15 +113,15 @@ internal fun MainActivity.themeBox() {
         Look.LIBRARY -> "31 · RUE CAMBON · LE MATIN"; Look.HOUR -> "GUICHETS · %s"
         Look.TRAIN -> "VOYAGE · %s"; Look.CAPTION -> "PHOTOGRAPHIE · %s"; else -> "31 · RUE CAMBON · %s"
     }
-    val lightBox = t == Look.LIBRARY
-    searchLine.setBackgroundColor(when (t) { Look.LIBRARY -> tint(.25f, M_INK); Look.TRAIN -> tint(.5f, V_IVORY); Look.HOUR -> tint(.4f, H_GOLD); else -> Style.gold(.4f) })
+    val lightBox = t == Look.LIBRARY && !Dk.lib
+    searchLine.setBackgroundColor(when (t) { Look.LIBRARY -> if (Dk.lib) Color.argb(110, 200, 96, 74) else tint(.25f, M_INK); Look.TRAIN -> tint(.5f, V_IVORY); Look.HOUR -> tint(.4f, H_GOLD); else -> Style.gold(.4f) })
     search.setHintTextColor(if (lightBox) 0xFF8E8579.toInt() else Style.ivory(.6f)); search.setTextColor(if (lightBox) M_INK else Style.IVORY)
-    search.hint = if (lightBox) "찾기 · SEARCH" else "SEARCH · 찾기"
+    search.hint = if (t == Look.LIBRARY) "찾기 · SEARCH" else "SEARCH · 찾기"
     val footC = if (lightBox) tint(.75f, 0xFF8A7E6E.toInt()) else Style.ivory(.65f)
     folio.setTextColor(footC); settingsBtn.setTextColor(footC)
     // 하단 글자 12sp (MONSIEUR는 그대로 9sp)
     folio.textSize = 12f; settingsBtn.textSize = 12f
-    searchGlyphColor(if (lightBox) 0xFF5E4522.toInt() else GOLD_LT)
+    searchGlyphColor(if (lightBox) 0xFF5E4522.toInt() else if (t == Look.LIBRARY) 0xFFC8604A.toInt() else GOLD_LT)
     col.requestLayout(); box.requestLayout()
     updateThemeClock()
 }
@@ -181,7 +181,7 @@ internal fun MainActivity.buildStage() {
                 val len = names[i].take(7).length
                 val cx = if (len < 7) ms.cellLeft(side) + (25 * len + 12.5f) * ms.u else if (side == 0) ms.ox + 190f * ms.u else ms.ox + 383f * ms.u
                 val sz = (10f * ms.u).roundToInt()
-                val d = View(this).apply { background = shape(M_RED, oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
+                val d = View(this).apply { background = shape(if (Dk.lib) Dk.LIB_DOT else M_RED, oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
                 stageIn.addView(d, FrameLayout.LayoutParams(sz, sz).apply { leftMargin = (cx - sz / 2f).roundToInt(); topMargin = (ms.charTop(r) + 12.5f * ms.u - sz / 2f).roundToInt() })
                 gridDots[id] = d
             }
@@ -303,7 +303,7 @@ private fun MainActivity.labelView(id: String, nm: String, fav: Boolean, badge: 
     repo.coverApps(id).firstOrNull()?.let { a ->
         v.addView(ImageView(this).apply { setImageDrawable(iconOf(a)); styleIcon(this) }, FrameLayout.LayoutParams(dp(18f), dp(18f), Gravity.CENTER_VERTICAL).apply { leftMargin = dp(16f) })
     }
-    val tv = txt(nm, Style.kr(this, if (fav) 600 else 500), nameSp(14f), look.nameColorOn(true, V_INK), 0f, Gravity.CENTER_VERTICAL).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+    val tv = txt(nm, Style.kr(this, if (fav) 600 else 500), nameSp(14f), look.nameColorOn(!Dk.voy, if (Dk.voy) Dk.LIB_TX else V_INK), 0f, Gravity.CENTER_VERTICAL).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
     v.addView(tv, FrameLayout.LayoutParams(-1, -1).apply { leftMargin = dp(40f); rightMargin = dp(22f) })
     val d = View(this).apply { background = shape(Style.ROUGE, oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
     v.addView(d, FrameLayout.LayoutParams(dp(6f), dp(6f), Gravity.END or Gravity.CENTER_VERTICAL).apply { rightMargin = dp(14f) })
@@ -510,17 +510,18 @@ internal fun MainActivity.cardTopFor(t: Int): Int {
 
 /** LIBRARY 카드 바탕: 펼친 두 쪽 (가운데 접힘 그늘) */
 class BookSpread(private val ctx: Context) : android.graphics.drawable.Drawable() {
-    private val paper = Style.tile(ctx, Style.PAPER, 256f)
+    private val paper: android.graphics.drawable.Drawable = if (Dk.lib) android.graphics.drawable.ColorDrawable(Dk.LIB_PAGE) else Style.tile(ctx, Style.PAPER, 256f)
     private val p = Paint()
     override fun draw(c: Canvas) {
         val b = bounds
         paper.bounds = b; paper.draw(c)
         val mid = b.exactCenterX(); val gw = ctx.dpf(18f)
-        p.shader = android.graphics.LinearGradient(mid - gw, 0f, mid, 0f, Color.TRANSPARENT, Color.argb(64, 0, 0, 0), android.graphics.Shader.TileMode.CLAMP)
+        p.shader = android.graphics.LinearGradient(mid - gw, 0f, mid, 0f, Color.TRANSPARENT, Color.argb(if (Dk.lib) 102 else 64, 0, 0, 0), android.graphics.Shader.TileMode.CLAMP)
         c.drawRect(mid - gw, b.top.toFloat(), mid, b.bottom.toFloat(), p)
         p.shader = android.graphics.LinearGradient(mid, 0f, mid + gw, 0f, Color.argb(64, 0, 0, 0), Color.TRANSPARENT, android.graphics.Shader.TileMode.CLAMP)
         c.drawRect(mid, b.top.toFloat(), mid + gw, b.bottom.toFloat(), p)
         p.shader = null; p.color = Color.argb(40, 0, 0, 0); c.drawRect(mid - .5f, b.top.toFloat(), mid + .5f, b.bottom.toFloat(), p)
+        if (Dk.lib) { p.style = Paint.Style.STROKE; p.strokeWidth = ctx.dpf(.75f); p.color = Color.argb(36, 237, 230, 216); c.drawRect(b.left + .5f, b.top + .5f, b.right - .5f, b.bottom - .5f, p); p.style = Paint.Style.FILL }
     }
     override fun setAlpha(alpha: Int) {}
     override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
@@ -638,8 +639,9 @@ internal fun MainActivity.showLibraryOpen(id: String, page: Int = 0) {
     val pg = page.coerceIn(0, pages - 1)
     val chunk = list.drop(pg * 20).take(20)
     val layer = FrameLayout(this).apply { elevation = dpf(24f); isClickable = true }
-    layer.addView(View(this).apply { setBackgroundColor(Color.argb(72, 60, 42, 22)); setOnClickListener { hideCard() } }, FrameLayout.LayoutParams(-1, -1))
+    layer.addView(View(this).apply { setBackgroundColor(if (Dk.lib) Color.argb(140, 0, 0, 0) else Color.argb(72, 60, 42, 22)); setOnClickListener { hideCard() } }, FrameLayout.LayoutParams(-1, -1))
     val L = Lay(this, layer, root.width, root.height)
+    fun ink(a: Float) = Dk.li(a)
     val bookW = root.width - dp(32f)
     val pageW = bookW / 2
     val top = maxOf(sbTop + dp(48f), L.y(230f))
@@ -647,23 +649,23 @@ internal fun MainActivity.showLibraryOpen(id: String, page: Int = 0) {
     val book = FrameLayout(this).apply { background = BookSpread(this@showLibraryOpen); elevation = dpf(12f); isClickable = true }
     val cellW = (pageW - dp(28f)) / 2
     fun grid(apps: List<AppEntry>) = GridLayout(this).apply { columnCount = 2
-        apps.forEach { a -> addView(appCell(a, a.pkg in BadgeService.active, id), GridLayout.LayoutParams().apply { width = cellW }) } }
+        apps.forEach { a -> addView(appCell(a, a.pkg in BadgeService.active, id, onDark = Dk.lib), GridLayout.LayoutParams().apply { width = cellW }) } }
     val left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18f), dp(24f), dp(10f), dp(16f)) }
-    left.addView(txt("VOL. %02d".format(repo.folders().indexOf(id) + 1), Style.jost(this, 400), 9f, Style.ink(.55f), .35f))
-    left.addView(txt(shortName(repo.nameOf(id)), Style.kr(this, 300), 22f, Style.INK).apply { maxLines = 2 }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10f) })
+    left.addView(txt("VOL. %02d".format(repo.folders().indexOf(id) + 1), Style.jost(this, 400), 9f, ink(.55f), .35f))
+    left.addView(txt(shortName(repo.nameOf(id)), Style.kr(this, 300), 22f, ink(1f)).apply { maxLines = 2 }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10f) })
     val cnt = android.text.SpannableStringBuilder()
     cnt.append("${list.size}", android.text.style.TypefaceSpan(Style.jost(this, 300)), 0)
     cnt.append(if (list.size == 1) " app" else " apps")
-    left.addView(txt(cnt, Fonts.serifI(this), 16f, Style.ink(.65f)), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2f) })
+    left.addView(txt(cnt, Fonts.serifI(this), 16f, ink(.65f)), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2f) })
     left.addView(grid(chunk.take(8)), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(16f) })
-    if (list.isEmpty()) left.addView(txt("비어 있습니다 · 다른 폴더의 앱을 길게 눌러 끌어 오세요", Style.kr(this, 300), 12f, Style.ink(.65f)).apply { setLineSpacing(dpf(3f), 1f) }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12f) })
+    if (list.isEmpty()) left.addView(txt("비어 있습니다 · 다른 폴더의 앱을 길게 눌러 끌어 오세요", Style.kr(this, 300), 12f, ink(.65f)).apply { setLineSpacing(dpf(3f), 1f) }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12f) })
     left.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
-    left.addView(txt(if (pages > 1) "— ${pg + 1} / $pages —" else "", Style.jost(this, 400), 10f, Style.ink(.4f), .2f), LinearLayout.LayoutParams(-1, -2))
+    left.addView(txt(if (pages > 1) "— ${pg + 1} / $pages —" else "", Style.jost(this, 400), 10f, ink(.4f), .2f), LinearLayout.LayoutParams(-1, -2))
     book.addView(left, FrameLayout.LayoutParams(pageW, -1))
     val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14f), dp(24f), dp(14f), dp(16f)) }
     right.addView(grid(chunk.drop(8)), LinearLayout.LayoutParams(-2, -2))
     right.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
-    val turn = txt(if (pages > 1) "넘기기 ›" else "", Style.kr(this, 400), 12f, Style.ink(.55f), 0f, Gravity.END or Gravity.CENTER_VERTICAL)
+    val turn = txt(if (pages > 1) "넘기기 ›" else "", Style.kr(this, 400), 12f, ink(.55f), 0f, Gravity.END or Gravity.CENTER_VERTICAL)
     if (pages > 1) turn.setOnClickListener { showLibraryOpen(id, (pg + 1) % pages) }
     right.addView(turn, LinearLayout.LayoutParams(-1, dp(44f)))
     book.addView(right, FrameLayout.LayoutParams(pageW, -1, Gravity.END))

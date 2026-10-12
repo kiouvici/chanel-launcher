@@ -37,7 +37,7 @@ class ThemeCover(ctx: Context, private val look: Look) : FrameLayout(ctx) {
     var onTrip: (() -> Unit)? = null
     private var cPhoto: View? = null; private var cTime: TextView? = null; private var cWx: TextView? = null; private var cNum: TextView? = null
 
-    val isLight get() = look.theme == Look.LIBRARY
+    val isLight get() = look.theme == Look.LIBRARY && !Dk.lib
 
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
         super.onSizeChanged(w, h, ow, oh)
@@ -65,11 +65,11 @@ class ThemeCover(ctx: Context, private val look: Look) : FrameLayout(ctx) {
 
     // ── ② 서재: 시간을 문장으로
     private fun library(L: Lay) {
-        background = android.graphics.drawable.LayerDrawable(arrayOf(android.graphics.drawable.ColorDrawable(0xFFF3EEE4.toInt()), Style.tile(context, Style.PAPER, 300f)))
-        lDate = L.t("", Style.jost(context, 400), 10f, Style.ink(.55f), .35f).also { L.add(it, 36f, 165f) }
-        lSent = L.t("", Fonts.serif(context), 34f, Style.INK).apply { setLineSpacing(L.zf(10f), 1f) }.also { L.addLR(it, 36f, 36f, 262f) }
-        lTime = L.t("", Style.jost(context, 300), 12f, Style.ink(.6f), .2f, Gravity.CENTER).also { L.addLR(it, 0f, 0f, 738f) }
-        L.addLR(L.t("AIHERMES · MONSIEUR", Style.jost(context, 400), 9f, Style.ink(.5f), .4f, Gravity.CENTER), 0f, 0f, 814f)
+        background = Dk.libBg(context)
+        lDate = L.t("", Style.jost(context, 400), 10f, if (Dk.lib) Dk.LIB_SUB else Style.ink(.55f), .35f).also { L.add(it, 36f, 165f) }
+        lSent = L.t("", Fonts.serif(context), 34f, Dk.li()).apply { setLineSpacing(L.zf(10f), 1f) }.also { L.addLR(it, 36f, 36f, 262f) }
+        lTime = L.t("", Style.jost(context, 300), 12f, if (Dk.lib) Dk.LIB_SUB else Style.ink(.6f), .2f, Gravity.CENTER).also { L.addLR(it, 0f, 0f, 738f) }
+        L.addLR(L.t("AIHERMES · MONSIEUR", Style.jost(context, 400), 9f, if (Dk.lib) Dk.LIB_SUB else Style.ink(.5f), .4f, Gravity.CENTER), 0f, 0f, 814f)
         addView(EarView(context), LayoutParams(L.z(34f), L.z(34f), Gravity.BOTTOM or Gravity.END))
     }
 

@@ -147,16 +147,44 @@ class HourDial(ctx: Context, var kind: Int) : View(ctx) {
 // ═════════ VOYAGE ═════════
 /** 마리니에르 띠: 남색 12dp 위에 아이보리 2dp 줄 셋 */
 fun stripesDrawable(ctx: Context): Drawable = drawableOf { c, b ->
-    val p = Paint(); p.color = V_INK; c.drawRect(b, p)
-    p.color = V_IVORY
+    val p = Paint()
     val u = b.height() / 12f
+    if (Dk.voy) {
+        // 블랙: 아이보리 두 줄 사이 남색 한 줄 (바탕은 니트가 비침)
+        listOf(V_IVORY, Dk.VOY_NAVY2, V_IVORY).forEachIndexed { k, col -> p.color = col; c.drawRect(b.left.toFloat(), b.top + k * 4 * u, b.right.toFloat(), b.top + k * 4 * u + 2 * u, p) }
+        return@drawableOf
+    }
+    p.color = V_INK; c.drawRect(b, p)
+    p.color = V_IVORY
     for (k in 0 until 3) c.drawRect(b.left.toFloat(), b.top + k * 4 * u, b.right.toFloat(), b.top + k * 4 * u + 2 * u, p)
 }
 
-/** 남색 바탕 + 니트 무늬 (alpha) */
+/** 남색 바탕 + 니트 무늬 (alpha) — 블랙이면 검은 니트(차가운 검정) */
 fun jerseyDrawable(ctx: Context, alpha: Float): Drawable =
-    android.graphics.drawable.LayerDrawable(arrayOf(android.graphics.drawable.ColorDrawable(V_NAVY),
+    if (Dk.voy) android.graphics.drawable.LayerDrawable(arrayOf(android.graphics.drawable.ColorDrawable(Dk.VOY_BG), Pic(Style.img(ctx, "th/voy_knit.webp"), Pic.COVER)))
+    else android.graphics.drawable.LayerDrawable(arrayOf(android.graphics.drawable.ColorDrawable(V_NAVY),
         Style.tile(ctx, "th/jersey_navy2.webp", 256f).apply { setAlpha((alpha * 255).roundToInt()) }))
+
+/** LIBRARY·VOYAGE 바탕 · 블랙(기본) / 밝게 — 샤넬팀: HA 보드(검정)와 한 벌 */
+object Dk {
+    @JvmStatic var lib = true
+    @JvmStatic var voy = true
+    const val LIB_BG = 0xFF15130F.toInt()      // 먹지 (따뜻한 검정)
+    const val LIB_PAGE = 0xFF1C1915.toInt()    // 열린 책장
+    const val LIB_TX = 0xFFEDE6D8.toInt()      // 본문 글자
+    const val LIB_SUB = 0xFF8C8478.toInt()     // 보조 글자
+    const val LIB_CORNER = 0xFFE3DCCF.toInt()  // 사진 모서리 (검정 위)
+    const val LIB_DOT = 0xFFD23A40.toInt()     // 알림 점
+    const val VOY_BG = 0xFF111318.toInt()      // 검은 니트 (차가운 검정)
+    const val VOY_NAVY = 0xFF1B2A4A.toInt()    // 라벨 · 집 상자
+    const val VOY_NAVY2 = 0xFF24365C.toInt()   // 줄무늬 가운데 · CLOSE
+    /** LIBRARY 글자색: 블랙이면 아이보리, 밝게면 먹 */
+    fun li(a: Float = 1f) = tint(a, if (lib) LIB_TX else Style.INK)
+    /** LIBRARY 바탕 */
+    fun libBg(ctx: Context, tileDp: Float = 300f): Drawable =
+        if (lib) android.graphics.drawable.LayerDrawable(arrayOf(android.graphics.drawable.ColorDrawable(LIB_BG), Pic(Style.img(ctx, "th/lib_black.webp"), Pic.COVER)))
+        else android.graphics.drawable.LayerDrawable(arrayOf(android.graphics.drawable.ColorDrawable(0xFFF3EEE4.toInt()), Style.tile(ctx, Style.PAPER, tileDp)))
+}
 
 /** 직조 라벨: 평평한 아이보리 + 짧은 변 양쪽 박음질(점선). 자주 여는 폴더는 왼쪽이 남색 2dp 실선 */
 class LabelBg(private val ctx: Context, private val fav: Boolean) : Drawable() {
@@ -165,12 +193,13 @@ class LabelBg(private val ctx: Context, private val fav: Boolean) : Drawable() {
         val b = bounds
         p.style = Paint.Style.FILL; p.pathEffect = null
         p.color = Color.argb(64, 0, 0, 0); c.drawRect(b.left.toFloat(), b.top + 1f, b.right.toFloat(), b.bottom.toFloat(), p)
-        p.color = V_LABEL; c.drawRect(b.left.toFloat(), b.top.toFloat(), b.right.toFloat(), b.bottom - ctx.dpf(1f), p)
+        p.color = if (Dk.voy) Dk.VOY_NAVY else V_LABEL; c.drawRect(b.left.toFloat(), b.top.toFloat(), b.right.toFloat(), b.bottom - ctx.dpf(1f), p)
         val inset = ctx.dpf(6f); val y0 = b.top + ctx.dpf(5f); val y1 = b.bottom - ctx.dpf(6f)
         p.style = Paint.Style.STROKE
         listOf(b.left + inset, b.right - inset).forEachIndexed { i, x ->
-            if (i == 0 && fav) { p.pathEffect = null; p.strokeWidth = ctx.dpf(2f); p.color = V_INK }
-            else { p.pathEffect = android.graphics.DashPathEffect(floatArrayOf(ctx.dpf(2f), ctx.dpf(2f)), 0f); p.strokeWidth = ctx.dpf(.5f); p.color = tint(.45f, V_INK) }
+            val ink = if (Dk.voy) V_IVORY else V_INK
+            if (i == 0 && fav) { p.pathEffect = null; p.strokeWidth = ctx.dpf(2f); p.color = ink }
+            else { p.pathEffect = android.graphics.DashPathEffect(floatArrayOf(ctx.dpf(2f), ctx.dpf(2f)), 0f); p.strokeWidth = ctx.dpf(.5f); p.color = tint(if (Dk.voy) .4f else .45f, ink) }
             c.drawLine(x, y0, x, y1, p)
         }
         p.pathEffect = null
@@ -276,18 +305,19 @@ class Manuscript(ctx: Context) : View(ctx) {
 
     override fun onDraw(c: Canvas) {
         if (u <= 0f) return
-        val a = .50f
-        val col = Color.argb((a * 255).roundToInt(), 192, 83, 63)
-        val dimc = Color.argb((a * .6f * 255).roundToInt(), 192, 83, 63)
+        val a = if (Dk.lib) .60f else .50f   // 먹지 위는 조금 진하게 (#C8604A 60%)
+        val rr = if (Dk.lib) 200 else 192; val gg = if (Dk.lib) 96 else 83; val bb = if (Dk.lib) 74 else 63
+        val col = Color.argb((a * 255).roundToInt(), rr, gg, bb)
+        val dimc = Color.argb(((if (Dk.lib) .35f else a * .6f) * 255).roundToInt(), rr, gg, bb)
         val L = ox; val R = ox + 380 * u; val T = oy; val B = oy + (rows * 44 + 8) * u
         // 겹선 테두리
-        p.style = Paint.Style.STROKE; p.color = Color.argb((a * 1.27f * 255).roundToInt().coerceAtMost(255), 192, 83, 63)
+        p.style = Paint.Style.STROKE; p.color = Color.argb((a * 1.27f * 255).roundToInt().coerceAtMost(255), rr, gg, bb)
         p.strokeWidth = 1.5f * u; c.drawRect(L + .5f * u, T, R - .5f * u, B, p)
         p.strokeWidth = .5f * u; c.drawRect(L - 2 * u, T - 2.5f * u, R + 2 * u, B + 2.5f * u, p)
         // 가운데 접힌 자국
         p.style = Paint.Style.FILL
         val mid = (L + R) / 2
-        p.shader = LinearGradient(mid - 6 * u, 0f, mid + 6 * u, 0f, intArrayOf(Color.TRANSPARENT, Color.argb(15, 94, 78, 58), Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
+        p.shader = LinearGradient(mid - 6 * u, 0f, mid + 6 * u, 0f, intArrayOf(Color.TRANSPARENT, if (Dk.lib) Color.argb(90, 0, 0, 0) else Color.argb(15, 94, 78, 58), Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
         c.drawRect(mid - 6 * u, T, mid + 6 * u, B, p); p.shader = null
         p.style = Paint.Style.STROKE; p.strokeWidth = .75f * u
         for (r in 0 until rows) {
@@ -309,10 +339,10 @@ class Manuscript(ctx: Context) : View(ctx) {
                 val latin = ch.code < 128 && ch.isLetter()
                 tp.typeface = if (latin) Fonts.serif(context) else Fonts.serifKR(context)
                 tp.textSize = (if (latin) 17f else 16f) * u * resources.displayMetrics.density / resources.displayMetrics.density
-                tp.color = M_INK
+                tp.color = if (Dk.lib) Dk.LIB_TX else M_INK
                 val cxx = x0 + (25 * j + 12.5f) * u
                 c.drawText(ch.toString(), cxx, y0 + 12.5f * u - (tp.ascent() + tp.descent()) / 2, tp)
-                if (i in favs) { p.color = M_INK; c.drawCircle(cxx, y0 - 5 * u, 1.75f * u, p) }
+                if (i in favs) { p.color = if (Dk.lib) Dk.LIB_TX else M_INK; c.drawCircle(cxx, y0 - 5 * u, 1.75f * u, p) }
             }
         }
     }
