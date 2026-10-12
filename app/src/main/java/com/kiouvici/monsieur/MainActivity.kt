@@ -157,6 +157,7 @@ class MainActivity : ComponentActivity(), MediaHost {
 
     private var openP = 0f          // 0 닫힘 ~ 1 열림
     private var boxH = 0
+    private val boxExtra get() = dp(48f)   // 서랍이 스프링으로 살짝 넘칠 때 아래 빈 곳이 안 보이게 상자를 더 긴 만큼
     internal var reduceMotion = false
     private var pageLoaded = false
     internal var cardFolder: String? = null
@@ -185,7 +186,7 @@ class MainActivity : ComponentActivity(), MediaHost {
             if (::card.isInitialized && card.visibility == View.VISIBLE && cardFolder == "__search") root.post { fitCard() }
             loginLayer?.setPadding(0, sbTop, 0, maxOf(navBot, ime.bottom))
             tripLayer?.setPadding(0, sbTop, 0, maxOf(navBot, ime.bottom))
-            if (::box.isInitialized) box.setPadding(0, 0, 0, maxOf(navBot, ime.bottom))
+            if (::box.isInitialized) box.setPadding(0, 0, 0, maxOf(navBot, ime.bottom) + boxExtra)   // + 상자 아래 여유만큼 (이걸 빼먹어 설정 줄이 화면 밖으로 밀렸던 것 — build-43)
             // 키보드만 오르내릴 때는 전체 재배치를 하지 않음
             if (barsChanged) root.post { applyInsets() }
             ins
@@ -436,7 +437,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         // 서랍은 화면 전체 (테마마다 위쪽을 직접 꾸밈 — MONSIEUR는 뚜껑 띠)
         boxH = root.height
         (box.layoutParams as FrameLayout.LayoutParams).apply { height = boxH + dp(48f); topMargin = 0 }   // 아래 48dp 여유: 스프링으로 살짝 넘칠 때 빈 곳이 안 보이게
-        box.setPadding(0, 0, 0, dp(48f))   // 내용은 화면 안에 (48dp 늘린 만큼 아래 설정 줄이 화면 밖으로 밀려 사라지던 것 — build-42)
+        box.setPadding(0, 0, 0, maxOf(navBot, imeBot) + boxExtra)   // 내용은 화면 안에
         box.requestLayout()
         themeCover.sbTop = sbTop; themeCover.navBot = navBot
         layoutCover()
@@ -900,18 +901,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         //  로그인 창에서 키보드가 뜨면 화면 재배치 → 곧바로 키보드가 내려가는 문제가 있었음)
         if (p == 0f && wasOpen) hideKeyboard()
         if (p > 0f && !wasOpen && badgeDirty) refreshBadges()
-        // MONSIEUR (성훈님: "하나도 모르겠다" → 크게): 서랍이 70% 올라오면 리본이 두 갈래로 풀려 양옆으로 날아가고,
-        // 다 올라오면 뚜껑이 12dp 들리며 −3° 기울었다 출렁이며 내려앉음. 닫기 시작하면 리본이 다시 묶임
-        if (look.theme == Look.MONSIEUR && ::rim.isInitialized && motionMode == 0) {
-            if (p >= .7f && !ribbonUntied && openP >= prevP) { ribbonUntied = true; untieRibbon() }
-            if (p >= 1f && prevP < 1f) {
-                // 뚜껑: 기울이면 화면 끝까지 긴 선이 비스듬해져 깨져 보여서(영상) — 기울임 없이 8dp 들렸다 출렁이며 내려앉음
-                rim.translationY = -dpf(8f); rimShade.translationY = -dpf(8f)
-                rim.animate().translationY(0f).setDuration(800).setInterpolator(SpringInterp(.42f, .5f, 800)).start()
-                rimShade.animate().translationY(0f).setDuration(800).setInterpolator(SpringInterp(.42f, .5f, 800)).start()
-            }
-            if (p < prevP && ribbonUntied && p < .98f) { ribbonUntied = false; tieRibbon() }
-        } else if (::tab.isInitialized && (p == 0f || motionMode != 0)) { ribbonUntied = false; tab.alpha = 1f; tab.scaleX = 1f; ribbonHalves?.forEach { box.removeView(it) }; ribbonHalves = null }
+        // MONSIEUR 리본·뚜껑 움직임은 삭제 (성훈님: 거슬림, build-43)
         prevP = p
         updateBars()
     }
@@ -1548,9 +1538,8 @@ class MainActivity : ComponentActivity(), MediaHost {
             cell.parent?.requestDisallowInterceptTouchEvent(true)
             // 길게 누르면 들어 올림 102% + 그림자 (흔들림 대신 — 샤넬팀)
             // 성훈님: 더 크게(112%) + 그림자가 보이게 — 아이콘 모양(둥근 네모)으로 그림자 윤곽을 줌
-            iv.outlineProvider = object : android.view.ViewOutlineProvider() { override fun getOutline(v: View, o: android.graphics.Outline) { o.setRoundRect(0, 0, v.width, v.height, v.width * .23f) } }
-            iv.outlineSpotShadowColor = Color.BLACK; iv.outlineAmbientShadowColor = Color.BLACK
-            if (motionMode == 2) { iv.scaleX = 1.12f; iv.scaleY = 1.12f; iv.translationZ = dpf(16f) } else iv.animate().scaleX(1.12f).scaleY(1.12f).translationZ(dpf(16f)).setDuration(if (motionMode == 0) 480 else 120).setInterpolator(if (motionMode == 0) Springs.lift() else EASE).start()
+            // 그림자는 없앰 (성훈님, build-43) — 112%로만 들어 올림
+            if (motionMode == 2) { iv.scaleX = 1.12f; iv.scaleY = 1.12f } else iv.animate().scaleX(1.12f).scaleY(1.12f).setDuration(if (motionMode == 0) 480 else 120).setInterpolator(if (motionMode == 0) Springs.lift() else EASE).start()
         }
         cell.setOnTouchListener { _, e ->
             when (e.actionMasked) {
