@@ -17,7 +17,7 @@ jobs:
         with:
           gradle-version: "8.7"
       - name: Build APK
-        run: gradle --no-daemon assembleRelease
+        run: mkdir -p shots && (gradle --no-daemon assembleRelease > shots/build.txt 2>&1 || (grep -E "^e: |error:" shots/build.txt | head -40; exit 1))
       - name: Enable KVM
         run: |
           mkdir -p shots; (ls -l /dev/kvm; nproc; free -m) > shots/env.txt 2>&1 || true
