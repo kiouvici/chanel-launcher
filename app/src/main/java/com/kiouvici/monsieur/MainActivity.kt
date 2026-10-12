@@ -339,7 +339,8 @@ class MainActivity : ComponentActivity(), MediaHost {
         }
         override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) {}
     }
-    private fun tilt(on: Boolean) {
+    /** (쓰지 않음 — 성훈님 결정으로 시차 효과 삭제) */
+    @Suppress("unused") private fun tilt(on: Boolean) {
         val sm = getSystemService(SENSOR_SERVICE) as android.hardware.SensorManager
         val want = on && motionMode == 0 && themeCover.wantsParallax && !(getSystemService(POWER_SERVICE) as android.os.PowerManager).isPowerSaveMode
         if (want == tiltOn) return
@@ -394,7 +395,6 @@ class MainActivity : ComponentActivity(), MediaHost {
         // 알림 점: 다른 앱에서 돌아오면 사용 기록을 읽고 폴더 점·앱 점을 함께 다시 켬 (build-38)
         Badges.syncUsage(this); refreshBadges()
         if (fromApp) { fromApp = false; root.post { homeReturnFx() } }
-        tilt(true)
         // 권한: 이어서 켜는 중이면 다음 화면, 다 끝나면 창으로 결과 보여 줌 · 처음 한 번은 빠진 게 있으면 창을 띄움
         if (permChain) { root.postDelayed({ if (!openNextPerm()) { permChain = false; permSheet() } }, 350) }
         else if (!getSharedPreferences("monsieur", MODE_PRIVATE).getBoolean("permAsked", false) && permNeed() > 0) {
@@ -433,7 +433,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         (indicator.layoutParams as FrameLayout.LayoutParams).bottomMargin = navBot + dp(8f); indicator.requestLayout()
         // 서랍은 화면 전체 (테마마다 위쪽을 직접 꾸밈 — MONSIEUR는 뚜껑 띠)
         boxH = root.height
-        (box.layoutParams as FrameLayout.LayoutParams).apply { height = boxH; topMargin = 0 }
+        (box.layoutParams as FrameLayout.LayoutParams).apply { height = boxH + dp(48f); topMargin = 0 }   // 아래 48dp 여유: 스프링으로 살짝 넘칠 때 빈 곳이 안 보이게
         box.requestLayout()
         themeCover.sbTop = sbTop; themeCover.navBot = navBot
         layoutCover()
@@ -444,7 +444,7 @@ class MainActivity : ComponentActivity(), MediaHost {
 
     override fun onPause() {
         super.onPause()
-        TouchLog.add("onPause"); tilt(false)
+        TouchLog.add("onPause")
         media.setShown(false)
         CookieManager.getInstance().flush()
     }
@@ -766,7 +766,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         if (n != cur) pager.hap(Hap.SEL)
         pageAnim = ValueAnimator.ofFloat(fromDx, dir * w).apply {
             // 부드럽게: 아이폰 페이지 넘김처럼 스프링 (.42 · .92)
-            duration = if (motionMode == 0) 520 else 360; interpolator = if (motionMode == 0) SpringInterp(.42f, .92f, 520) else EASE
+            duration = if (motionMode == 0) 700 else 360; interpolator = if (motionMode == 0) SpringInterp(.55f, 1f, 700) else EASE   // 더 부드럽게 미끄러져 멈춤 (넘침 없음)
             addUpdateListener { layoutPages(it.animatedValue as Float) }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(a: android.animation.Animator) { cur = n; layoutPages(0f) }
@@ -897,17 +897,51 @@ class MainActivity : ComponentActivity(), MediaHost {
         //  로그인 창에서 키보드가 뜨면 화면 재배치 → 곧바로 키보드가 내려가는 문제가 있었음)
         if (p == 0f && wasOpen) hideKeyboard()
         if (p > 0f && !wasOpen && badgeDirty) refreshBadges()
-        // MONSIEUR: 열 때 뚜껑이 6dp 들리며 −1.5° 기울었다 내려앉고, 리본은 양옆으로 풀림 (닫을 때 다시 묶임 200ms)
-        if (look.theme == Look.MONSIEUR && ::rim.isInitialized) {
-            if (p > 0f && !wasOpen && motionMode == 0) {
-                rim.pivotX = rim.width / 2f; rim.translationY = -dpf(6f); rim.rotation = -1.5f
-                rim.animate().translationY(0f).rotation(0f).setDuration(600).setInterpolator(SpringInterp(.35f, .6f, 600)).start()
-                tab.animate().scaleX(0f).setDuration(220).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
-            } else if (p == 0f && wasOpen) {
-                if (motionMode == 0) tab.animate().scaleX(1f).setDuration(200).start() else tab.scaleX = 1f
+        // MONSIEUR (성훈님: "하나도 모르겠다" → 크게): 서랍이 70% 올라오면 리본이 두 갈래로 풀려 양옆으로 날아가고,
+        // 다 올라오면 뚜껑이 12dp 들리며 −3° 기울었다 출렁이며 내려앉음. 닫기 시작하면 리본이 다시 묶임
+        if (look.theme == Look.MONSIEUR && ::rim.isInitialized && motionMode == 0) {
+            if (p >= .7f && !ribbonUntied && openP >= prevP) { ribbonUntied = true; untieRibbon() }
+            if (p >= 1f && prevP < 1f) {
+                rim.pivotX = rim.width / 2f; rim.translationY = -dpf(12f); rim.rotation = -3f
+                rim.animate().translationY(0f).rotation(0f).setDuration(800).setInterpolator(SpringInterp(.42f, .45f, 800)).start()
+            }
+            if (p < prevP && ribbonUntied && p < .98f) { ribbonUntied = false; tieRibbon() }
+        } else if (::tab.isInitialized && (p == 0f || motionMode != 0)) { ribbonUntied = false; tab.alpha = 1f; tab.scaleX = 1f; ribbonHalves?.forEach { box.removeView(it) }; ribbonHalves = null }
+        prevP = p
+        updateBars()
+    }
+
+    private var prevP = 0f
+    private var ribbonUntied = false
+    private var ribbonHalves: List<ImageView>? = null
+    /** 리본 풀기: 리본을 반으로 나눈 두 조각이 양옆으로 40dp씩 날아가며 ±18° 돌고 사라짐 */
+    private fun untieRibbon() {
+        ribbonHalves?.forEach { box.removeView(it) }
+        val lp = tab.layoutParams as FrameLayout.LayoutParams
+        val w = tab.width; val h = tab.height
+        if (w == 0) return
+        val halves = (0..1).map { i ->
+            ImageView(this).apply {
+                setImageDrawable(tab.drawable); scaleType = ImageView.ScaleType.FIT_XY; elevation = tab.elevation
+                clipBounds = android.graphics.Rect(if (i == 0) 0 else w / 2, 0, if (i == 0) w / 2 else w, h)
+                box.addView(this, FrameLayout.LayoutParams(w, h, Gravity.CENTER_HORIZONTAL).apply { topMargin = lp.topMargin })
             }
         }
-        updateBars()
+        ribbonHalves = halves; tab.alpha = 0f
+        halves.forEachIndexed { i, v ->
+            val dir = if (i == 0) -1f else 1f
+            v.pivotX = if (i == 0) w / 2f else w / 2f
+            v.animate().translationX(dir * dpf(40f)).translationY(dpf(6f)).rotation(dir * 18f).alpha(0f)
+                .setDuration(520).setInterpolator(android.view.animation.DecelerateInterpolator(1.6f)).start()
+        }
+    }
+    /** 리본 다시 묶기: 두 조각이 가운데로 모여 하나가 됨 (0.3초) */
+    private fun tieRibbon() {
+        val halves = ribbonHalves
+        if (halves == null) { tab.alpha = 1f; return }
+        halves.forEach { v -> v.animate().translationX(0f).translationY(0f).rotation(0f).alpha(1f).setDuration(300).setInterpolator(SpringInterp(.35f, .8f, 300))
+            .withEndAction { box.removeView(v); tab.alpha = 1f }.start() }
+        ribbonHalves = null
     }
 
     private var anim: ValueAnimator? = null
@@ -919,7 +953,7 @@ class MainActivity : ComponentActivity(), MediaHost {
             // 부드럽게: 애플식 스프링(0.45초 · 감쇠 .86) — 넘치는 부분은 잘라서 상자 아래가 비지 않게 · 짧게: 0.18초
             duration = if (smooth) 620 else 180; interpolator = if (smooth) Springs.drawer() else EASE
             var tapped = false
-            addUpdateListener { val v = it.animatedValue as Float; setOpen(v.coerceIn(0f, 1f))
+            addUpdateListener { val v = it.animatedValue as Float; setOpen(if (target == 1f) v.coerceIn(0f, 1.04f) else v.coerceIn(0f, 1f))
                 // 자리에 닿는 순간 가벼운 '톡' (애플)
                 if (!tapped && ((target == 1f && v >= .98f) || (target == 0f && v <= .02f))) { tapped = true; box.hap(Hap.LIGHT) } }
             start()
@@ -1027,7 +1061,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         hdr = FrameLayout(this)
         col.addView(hdr, LinearLayout.LayoutParams(-1, dp(40f)))
         stageIn = FrameLayout(this)
-        stage = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; clipChildren = false; addView(stageIn, FrameLayout.LayoutParams(-1, -2)) }
+        stage = RubberScroll(this, allowTop = false) { motionMode == 0 }.apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; clipChildren = false; addView(stageIn, FrameLayout.LayoutParams(-1, -2)) }
         col.addView(stage, LinearLayout.LayoutParams(-1, 0, 1f))
         stage.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, oRight, ob -> if (r - l != oRight - ol || b - t != ob - ot) stage.post { buildStage() } }
 
@@ -1244,7 +1278,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         cardHint = label("", Style.kr(this, 300), 11f, Style.ink(.65f), 0f, Gravity.START)
         cc.addView(cardHint, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10f) })
         cardApps = GridLayout(this).apply { columnCount = 4 }
-        cardScroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(cardApps) }
+        cardScroll = RubberScroll(this) { motionMode == 0 }.apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; addView(cardApps) }
         cc.addView(cardScroll, LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(18f) })
         cardEmpty = label("비어 있습니다 · 다른 폴더의 앱을 길게 눌러 끌어 오세요", Style.kr(this, 300), 12f, Style.ink(.65f), 0f, Gravity.START).apply { visibility = View.GONE }
         cc.addView(cardEmpty, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8f); bottomMargin = dp(8f) })
@@ -1419,15 +1453,23 @@ class MainActivity : ComponentActivity(), MediaHost {
         cardEmpty.visibility = if (list.isEmpty() && !f.startsWith("__")) View.VISIBLE else View.GONE
         val badges = Badges.shown()
         val src = if (f.startsWith("__")) null else f
-        val cw = dp(look.iconDp + floatArrayOf(16f, 26f, 38f)[look.gapMode])
-        // LIBRARY 펼친 책: 2열 + 가운데 접힘 + 2열
+        // 카드 안쪽 폭에 맞춰 칸 수·칸 폭을 정함 (아이콘을 키우면 오른쪽 줄이 잘리고 알림 점이 안 보이던 것 — 성훈님)
         val book = cardSkin == Look.LIBRARY
-        val cols = if (look.iconDp > 56f && !book) 3 else 4
+        val avail = root.width - dp(32f) - dp(56f)
+        val (cols0, cw) = gridFit(avail, 4)
+        val cols = if (book) 4 else cols0
         cardApps.columnCount = cols
         list.forEachIndexed { i, a -> cardApps.addView(appCell(a, a.pkg in badges, src), GridLayout.LayoutParams().apply {
             width = if (book) dp(look.iconDp + 18f) else cw
             if (book && i % 4 == 2) leftMargin = dp(36f)
         }) }
+    }
+
+    /** 폭 avail 안에 앱 칸을 몇 줄로 넣을지: 아이콘 + 간격(좁게 10 · 기본 22 · 넓게 36dp)이 들어가는 만큼, 최대 max칸, 최소 3칸. 칸 폭은 남김없이 나눔 */
+    internal fun gridFit(avail: Int, max: Int): Pair<Int, Int> {
+        val need = dp(look.iconDp + floatArrayOf(10f, 22f, 36f)[look.gapMode])
+        val cols = (avail / need.coerceAtLeast(1)).coerceIn(3, max)
+        return cols to avail / cols
     }
 
     /** 앱 한 칸: 누르면 실행 · 길게 누른 채 8dp 넘게 끌면 옮기기 · 길게 누르고 그냥 떼면 메뉴 (샤넬팀 7:0) */
@@ -1468,7 +1510,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         }
         if (!look.showAppNames && !row) t.visibility = View.GONE   // 아이콘만 보기
         if (row) cell.addView(t, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(12f) })
-        else cell.addView(t, LinearLayout.LayoutParams(if (compact) dp(64f) else maxOf(dp(72f), ic + dp(18f)), -2).apply { topMargin = dp(if (compact) 4f else 6f) })
+        else cell.addView(t, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(if (compact) 4f else 6f); leftMargin = dp(2f); rightMargin = dp(2f) })   // 이름은 칸 폭 안에서 (칸 밖으로 밀려 잘리던 것)
         if (repo.isHidden(a.pkg)) cell.alpha = .5f   // 숨긴 앱은 검색에서 흐리게
 
         if (pf != null && src == pf) {
@@ -1496,7 +1538,10 @@ class MainActivity : ComponentActivity(), MediaHost {
             cell.hap(Hap.MEDIUM)
             cell.parent?.requestDisallowInterceptTouchEvent(true)
             // 길게 누르면 들어 올림 102% + 그림자 (흔들림 대신 — 샤넬팀)
-            if (motionMode == 2) { iv.scaleX = 1.02f; iv.scaleY = 1.02f } else iv.animate().scaleX(1.02f).scaleY(1.02f).translationZ(dpf(8f)).setDuration(if (motionMode == 0) 420 else 120).setInterpolator(if (motionMode == 0) Springs.lift() else EASE).start()
+            // 성훈님: 더 크게(112%) + 그림자가 보이게 — 아이콘 모양(둥근 네모)으로 그림자 윤곽을 줌
+            iv.outlineProvider = object : android.view.ViewOutlineProvider() { override fun getOutline(v: View, o: android.graphics.Outline) { o.setRoundRect(0, 0, v.width, v.height, v.width * .23f) } }
+            iv.outlineSpotShadowColor = Color.BLACK; iv.outlineAmbientShadowColor = Color.BLACK
+            if (motionMode == 2) { iv.scaleX = 1.12f; iv.scaleY = 1.12f; iv.translationZ = dpf(16f) } else iv.animate().scaleX(1.12f).scaleY(1.12f).translationZ(dpf(16f)).setDuration(if (motionMode == 0) 480 else 120).setInterpolator(if (motionMode == 0) Springs.lift() else EASE).start()
         }
         cell.setOnTouchListener { _, e ->
             when (e.actionMasked) {
@@ -1513,9 +1558,9 @@ class MainActivity : ComponentActivity(), MediaHost {
                         // 1.06배로 들어 손가락을 따라감 (흔들림 없음) → 카드를 내려놓고 폴더 위에 놓기
                         val shadow = object : View.DragShadowBuilder(iv) {
                             override fun onProvideShadowMetrics(size: Point, touch: Point) {
-                                val s = (iv.width * 1.02f).toInt(); size.set(s, s); touch.set(s / 2, s / 2)
+                                val s = (iv.width * 1.12f).toInt(); size.set(s, s); touch.set(s / 2, s / 2)
                             }
-                            override fun onDrawShadow(c: Canvas) { c.scale(1.02f, 1.02f); iv.draw(c) }
+                            override fun onDrawShadow(c: Canvas) { c.scale(1.12f, 1.12f); iv.draw(c) }
                         }
                         iv.startDragAndDrop(ClipData.newPlainText("pkg", a.pkg + "\n" + (src ?: "")), shadow, null, 0)
                         hideCard(); hideKeyboard()
@@ -1680,9 +1725,9 @@ class MainActivity : ComponentActivity(), MediaHost {
                 // 누른 자리에서 피어남 (85%→100%, 스프링 .35 · .80) + 뒤 어둡게 30% · 흐림 6dp
                 m.pivotX = (ax + anchor.width / 2f - x).coerceIn(0f, mw.toFloat()); m.pivotY = if (y < ay) mh.toFloat() else 0f
                 m.alpha = 0f; m.scaleX = .85f; m.scaleY = .85f
-                m.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(520).setInterpolator(SpringInterp(.35f, .8f, 520)).start()
+                m.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(760).setInterpolator(SpringInterp(.5f, .8f, 760)).start()   // 성훈님: 더 천천히
                 layer.setBackgroundColor(Color.argb(77, 0, 0, 0)); layer.background.alpha = 0
-                ValueAnimator.ofInt(0, 255).apply { duration = 200; addUpdateListener { layer.background?.alpha = it.animatedValue as Int; blurBehind((it.animatedValue as Int) / 255f) }; start() }
+                ValueAnimator.ofInt(0, 255).apply { duration = 320; addUpdateListener { layer.background?.alpha = it.animatedValue as Int; blurBehind((it.animatedValue as Int) / 255f) }; start() }
             }
             1 -> { m.alpha = 0f; m.animate().alpha(1f).setDuration(150).start() }
         }

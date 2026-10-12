@@ -13,6 +13,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.ImageView
+import androidx.core.view.drawToBitmap
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -561,7 +562,7 @@ internal fun MainActivity.showHourOpen(id: String) {
         val cell = appCell(a, a.pkg in Badges.shown(), id, compact = true, onDark = true).apply { background = windowDrawable(this@showHourOpen); setPadding(0, dp(12f), 0, dp(8f)) }
         grid.addView(cell, GridLayout.LayoutParams().apply { width = cw; if (i % 4 > 0) leftMargin = dp(6f); topMargin = dp(8f) })
     }
-    val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = overMode(); addView(grid) }
+    val sv = RubberScroll(this) { motionMode == 0 }.apply { isVerticalScrollBarEnabled = false; overScrollMode = overMode(); addView(grid) }
     col.addView(sv, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(12f) })
     if (list.isEmpty()) col.addView(txt("비어 있습니다 · 다른 폴더의 앱을 길게 눌러 끌어 오세요", Style.kr(this, 300), 12f, tint(.65f, H_IVORY)), LinearLayout.LayoutParams(-1, -2))
     val close = txt("CLOSE · 닫기", Style.jost(this, 400), 12f, H_GOLD, .25f, Gravity.CENTER).apply { background = shape(stroke = H_GOLD, strokePx = hair(.75f)); setOnClickListener { hideCard() } }
@@ -596,10 +597,10 @@ internal fun MainActivity.showVoyageOpen(id: String) {
     card.addView(col, FrameLayout.LayoutParams(-1, -1))
     col.addView(txt("CARTE POSTALE · ${list.size} APPS", Style.jost(this, 400), 10f, tint(.7f, V_INK), .3f))
     col.addView(txt(shortName(repo.nameOf(id)), Style.kr(this, 300), 26f, V_INK).apply { maxLines = 1 }, LinearLayout.LayoutParams((240 * sx).roundToInt(), -2).apply { topMargin = dp(6f) })
-    val grid = GridLayout(this).apply { columnCount = 5 }
-    val cw = (cardW - dp(44f)) / 5
+    val (vCols, cw) = gridFit(cardW - dp(44f), 5)
+    val grid = GridLayout(this).apply { columnCount = vCols }
     list.forEach { a -> grid.addView(appCell(a, a.pkg in Badges.shown(), id, onDark = Dk.inkPage), GridLayout.LayoutParams().apply { width = cw }) }
-    val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = overMode(); addView(grid) }
+    val sv = RubberScroll(this) { motionMode == 0 }.apply { isVerticalScrollBarEnabled = false; overScrollMode = overMode(); addView(grid) }
     col.addView(sv, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = (h * .07f).roundToInt() })
     if (list.isEmpty()) col.addView(txt("비어 있습니다 · 다른 폴더의 앱을 길게 눌러 끌어 오세요", Style.kr(this, 300), 12f, tint(.7f, V_INK)), LinearLayout.LayoutParams(-1, -2))
     val close = txt("CLOSE · 닫기", Style.jost(this, 400), 12f, V_IVORY, .25f, Gravity.CENTER).apply { setBackgroundColor(V_INK); setOnClickListener { hideCard() } }
@@ -635,7 +636,7 @@ internal fun MainActivity.showCaptionOpen(id: String) {
     list.forEachIndexed { i, a ->
         grid.addView(appCell(a, a.pkg in Badges.shown(), id, row = true, onDark = true), GridLayout.LayoutParams().apply { width = cw; if (i % 2 == 1) leftMargin = dp(16f) })
     }
-    val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = overMode(); addView(grid) }
+    val sv = RubberScroll(this) { motionMode == 0 }.apply { isVerticalScrollBarEnabled = false; overScrollMode = overMode(); addView(grid) }
     layer.addView(sv, FrameLayout.LayoutParams(-1, -1).apply { leftMargin = L.x(28f); rightMargin = L.x(28f); topMargin = L.y(304f); bottomMargin = navBot + dp(76f) })
     root.addView(layer, FrameLayout.LayoutParams(-1, -1))
     themeOpen = layer
@@ -707,20 +708,52 @@ internal fun MainActivity.showLibraryOpen(id: String, page: Int = 0, turnDir: In
     root.addView(layer, FrameLayout.LayoutParams(-1, -1))
     themeOpen = layer
     themeContent = book
+    layer.setTag(R.id.lib_pages, book)
     if (oldLayer != null) {
-        // 책장 넘김: 새 쪽이 책등을 축으로 넘어와 내려앉음 + 넘어가는 면에 그늘 (종이 휘기 대신 — 샤넬팀)
+        // 책장 넘김 (성훈님: "책장 넘겨지는 효과로 안 보임" → 진짜 한 장이 넘어가게):
+        // 옛 오른쪽 쪽을 앞면, 새 왼쪽 쪽을 뒷면으로 한 '한 장'이 책등을 축으로 0°→−180° 넘어감. 넘어가는 면에 그늘, 아래 쪽에 그림자
+        val oldBook = oldLayer.getTag(R.id.lib_pages) as? View
+        val oldBmp = try { if (motionMode == 0 && oldBook != null && oldBook.width > 0) oldBook.drawToBitmap() else null } catch (e: Exception) { null }
         root.removeView(oldLayer); footVisible(false); book.hap(Hap.LIGHT)
-        if (motionMode == 0) {
-            val pageV = if (turnDir > 0) right else left
-            pageV.cameraDistance = 12000 * resources.displayMetrics.density
-            pageV.pivotX = if (turnDir > 0) 0f else pageW.toFloat(); pageV.pivotY = h / 2f
-            val shade = View(this).apply { setBackgroundColor(Color.BLACK); alpha = .25f; isClickable = false }
-            book.addView(shade, FrameLayout.LayoutParams(pageW, -1, if (turnDir > 0) Gravity.END else Gravity.START))
-            android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = 600; interpolator = SpringInterp(.45f, .9f, 600)
-                addUpdateListener { val q = it.animatedValue as Float; pageV.rotationY = (if (turnDir > 0) -90f else 90f) * (1 - q); shade.alpha = .25f * (1 - q) }
-                addListener(object : android.animation.AnimatorListenerAdapter() { override fun onAnimationEnd(a: android.animation.Animator) { book.removeView(shade); pageV.rotationY = 0f } })
-                start()
+        if (oldBmp != null) {
+            val fwd = turnDir > 0
+            val pw = oldBmp.width / 2
+            fun half(b: android.graphics.Bitmap, leftHalf: Boolean) = android.graphics.Bitmap.createBitmap(b, if (leftHalf) 0 else pw, 0, pw, b.height)
+            // 넘기는 동안 반대쪽은 옛 쪽을 덮어 두었다가 한 장이 내려앉으면 걷음
+            val cover = ImageView(this).apply { setImageBitmap(half(oldBmp, fwd)); scaleType = ImageView.ScaleType.FIT_XY }
+            val under = View(this).apply { background = android.graphics.drawable.GradientDrawable(if (fwd) android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT else android.graphics.drawable.GradientDrawable.Orientation.RIGHT_LEFT, intArrayOf(Color.argb(90, 0, 0, 0), Color.TRANSPARENT)) }
+            val leaf = FrameLayout(this)
+            val front = ImageView(this).apply { setImageBitmap(half(oldBmp, !fwd)); scaleType = ImageView.ScaleType.FIT_XY }
+            val back = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_XY; scaleX = -1f; visibility = View.INVISIBLE }
+            val leafShade = View(this).apply { setBackgroundColor(Color.BLACK); alpha = 0f }
+            leaf.addView(front, FrameLayout.LayoutParams(-1, -1)); leaf.addView(back, FrameLayout.LayoutParams(-1, -1)); leaf.addView(leafShade, FrameLayout.LayoutParams(-1, -1))
+            book.addView(cover, FrameLayout.LayoutParams(pageW, -1, if (fwd) Gravity.START else Gravity.END))
+            book.addView(under, FrameLayout.LayoutParams(pageW, -1, if (fwd) Gravity.END else Gravity.START))
+            book.addView(leaf, FrameLayout.LayoutParams(pageW, -1, if (fwd) Gravity.END else Gravity.START))
+            leaf.elevation = dpf(2f)
+            book.post {
+                // 새 책을 찍어 뒷면(넘어온 쪽)으로 씀 — 덮개들을 잠깐 숨기고 찍음
+                cover.visibility = View.INVISIBLE; under.visibility = View.INVISIBLE; leaf.visibility = View.INVISIBLE
+                val newBmp = try { book.drawToBitmap() } catch (e: Exception) { null }
+                cover.visibility = View.VISIBLE; under.visibility = View.VISIBLE; leaf.visibility = View.VISIBLE
+                if (newBmp != null) back.setImageBitmap(half(newBmp, fwd))
+                leaf.cameraDistance = 14000 * resources.displayMetrics.density
+                leaf.pivotX = if (fwd) 0f else leaf.width.toFloat(); leaf.pivotY = leaf.height / 2f
+                android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+                    duration = 900; interpolator = SpringInterp(.62f, .92f, 900)
+                    addUpdateListener {
+                        val q = (it.animatedValue as Float).coerceIn(0f, 1f)
+                        leaf.rotationY = (if (fwd) -180f else 180f) * q
+                        val flipped = q >= .5f
+                        front.visibility = if (flipped) View.INVISIBLE else View.VISIBLE; back.visibility = if (flipped) View.VISIBLE else View.INVISIBLE
+                        leafShade.alpha = .35f * kotlin.math.sin(Math.PI * q).toFloat()     // 세워질수록 그늘
+                        under.alpha = 1f - q                                                  // 아래 쪽에 지던 그림자는 걷힘
+                    }
+                    addListener(object : android.animation.AnimatorListenerAdapter() {
+                        override fun onAnimationEnd(a: android.animation.Animator) { book.removeView(leaf); book.removeView(cover); book.removeView(under) }
+                    })
+                    start()
+                }
             }
         }
         return
