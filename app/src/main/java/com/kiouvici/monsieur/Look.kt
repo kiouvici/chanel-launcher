@@ -82,6 +82,10 @@ class Look(ctx: Context) {
         get() = p.getInt("hourDial", 0).coerceIn(0, 1)
         set(v) { p.edit().putInt("hourDial", v).apply() }
     /** THE LIBRARY 원고지 순서 0 세로(왼쪽 1–15) · 1 가로 */
+    /** VOYAGE 서랍 라벨 순서: 0 세로(왼쪽 위→아래 먼저) · 1 가로(줄마다 왼쪽→오른쪽) */
+    var trainOrder: Int
+        get() = p.getInt("trainOrder", 0).coerceIn(0, 1)
+        set(v) { p.edit().putInt("trainOrder", v).apply() }
     var libOrder: Int
         get() = p.getInt("libOrder", 0).coerceIn(0, 1)
         set(v) { p.edit().putInt("libOrder", v).apply() }

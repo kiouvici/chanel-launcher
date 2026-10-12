@@ -290,6 +290,8 @@ class MainActivity : ComponentActivity(), MediaHost {
         when (i.getStringExtra("sheet")) {
             "dial" -> root.postDelayed({ setOpen(1f); choiceSheet(0) }, 400)
             "touchlog" -> root.postDelayed({ touchLogSheet() }, 400)
+            "perm" -> root.postDelayed({ permSheet() }, 400)
+            "train" -> root.postDelayed({ choiceSheet(2) }, 400)
             "sound" -> root.postDelayed({ soundSheet(i.getIntExtra("demo", 1) - 1, H_GOLD) {} }, 400)
             "settings" -> root.postDelayed({ setOpen(1f); showSettingsSheet() }, 400)
             "display" -> root.postDelayed({ setOpen(1f); displaySheet() }, 400)
@@ -349,6 +351,12 @@ class MainActivity : ComponentActivity(), MediaHost {
         TouchLog.add("onResume · 서랍 확인 ${android.os.SystemClock.uptimeMillis() - t0}ms")
         // 알림 점: 다른 앱에서 돌아오면 사용 기록을 읽고 폴더 점·앱 점을 함께 다시 켬 (build-38)
         Badges.syncUsage(this); refreshBadges()
+        // 권한: 이어서 켜는 중이면 다음 화면, 다 끝나면 창으로 결과 보여 줌 · 처음 한 번은 빠진 게 있으면 창을 띄움
+        if (permChain) { root.postDelayed({ if (!openNextPerm()) { permChain = false; permSheet() } }, 350) }
+        else if (!getSharedPreferences("monsieur", MODE_PRIVATE).getBoolean("permAsked", false) && permNeed() > 0) {
+            getSharedPreferences("monsieur", MODE_PRIVATE).edit().putBoolean("permAsked", true).apply()
+            root.postDelayed({ permSheet() }, 800)
+        }
         TouchLog.firstFrame("복귀")
         media.setShown(cur == 1)
         updateDate()
@@ -1038,7 +1046,7 @@ class MainActivity : ComponentActivity(), MediaHost {
     internal fun stageSig(): String {
         if (!::stage.isInitialized) return ""
         val f = repo.folders()
-        return listOf(look.theme, Dk.libStyle, Dk.voy, look.libOrder, look.folderScale, repo.iconMode, stage.width, stage.height,
+        return listOf(look.theme, Dk.libStyle, Dk.voy, look.libOrder, look.trainOrder, look.folderScale, repo.iconMode, stage.width, stage.height,
             f.joinToString(",") { it + ":" + repo.nameOf(it) + ":" + repo.appsIn(it).size }, repo.favorites().sorted().joinToString(","),
             repo.unassigned().size, search.text?.toString() ?: "").joinToString("|")
     }
@@ -1680,6 +1688,42 @@ class MainActivity : ComponentActivity(), MediaHost {
         }
     }
 
+    // ───────── 권한 한 곳에서 (build-39) — 안드로이드는 권한마다 시스템 화면이 따로라, 순서대로 이어서 엶 ─────────
+    private fun notifOk() = androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
+    private fun permNeed() = (if (notifOk()) 0 else 1) + (if (Badges.usageGranted(this)) 0 else 1)
+    private var permChain = false
+    /** 아직 안 된 권한 화면을 하나 열고 true, 다 됐으면 false */
+    private fun openNextPerm(): Boolean {
+        if (!notifOk()) { openSafely(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); return true }
+        if (!Badges.usageGranted(this)) { openSafely(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)); return true }
+        return false
+    }
+    private fun permSheet() {
+        openSheet { sh ->
+            sheetKicker(sh, "권한 · 알림 점과 미디어")
+            sh.addView(label("안드로이드는 권한마다 허용 화면이 따로 있습니다. 아래 단추를 누르면 필요한 화면이 차례로 열리고, 켜고 뒤로 오시면 다음 화면이 이어서 열립니다.", Style.kr(this, 300), 12.5f, Style.ink(.6f), 0f, Gravity.START),
+                LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12f) })
+            fun item(title: String, sub: String, ok: Boolean, go: () -> Unit) {
+                val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; background = pressedBg(); setOnClickListener { go() } }
+                val tx = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                tx.addView(label(title, Style.kr(this, 400), 14f, Style.INK, 0f, Gravity.START))
+                tx.addView(label(sub, Style.kr(this, 300), 11.5f, Style.ink(.55f), 0f, Gravity.START), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(2f) })
+                r.addView(tx, LinearLayout.LayoutParams(0, -2, 1f))
+                r.addView(label(if (ok) "●  허용됨" else "○  허용 필요", Style.kr(this, if (ok) 500 else 300), 12.5f, if (ok) Style.GOLD else Style.ink(.6f), 0f, Gravity.END))
+                sh.addView(r, LinearLayout.LayoutParams(-1, dp(64f)))
+                sh.addView(View(this).apply { setBackgroundColor(Style.ink(.1f)) }, LinearLayout.LayoutParams(-1, hair(.5f)))
+            }
+            item("알림 접근", "알림 점 · 음악 제목과 앨범 그림", notifOk()) { hideSettingsSheet(); openSafely(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+            item("앱 사용 기록", "열어 본 앱의 알림 점 끄기", Badges.usageGranted(this)) { hideSettingsSheet(); openSafely(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
+            val n = permNeed()
+            val b = label(if (n == 0) "모두 허용됨" else "허용 안 된 것 모두 켜기", Style.kr(this, 500), 14f, if (n == 0) Style.ink(.4f) else Style.INK, 0f, Gravity.CENTER).apply {
+                background = GradientDrawable().apply { setStroke(hair(1f), Style.ink(if (n == 0) .2f else .6f)) }
+                if (n > 0) setOnClickListener { hideSettingsSheet(); permChain = true; openNextPerm() }
+            }
+            sh.addView(b, LinearLayout.LayoutParams(-1, dp(48f)).apply { topMargin = dp(16f) })
+        }
+    }
+
     private fun showSettingsSheet() {
         hideKeyboard()
         openSheet { sh ->
@@ -1704,6 +1748,7 @@ class MainActivity : ComponentActivity(), MediaHost {
             when (look.theme) {
                 Look.CAPTION -> { row("표지 사진 · THE CAPTION", if (look.photos.isEmpty()) "기본" else "${look.photos.size}장", true) { pickPhotos() }; line() }
                 Look.TRAIN -> { row("여행 사진 · THE VOYAGE", if (look.trips.isEmpty()) "기본" else "${look.trips.size}장", true) { tripEditor() }; line()
+                    row("라벨 순서 · THE VOYAGE", if (look.trainOrder == 0) "세로" else "가로", true) { choiceSheet(2) }; line()
                     row("바탕 · THE VOYAGE", if (look.voyDark) "블랙" else "밝게", true) { look.voyDark = !look.voyDark; applyTheme(look.theme) }; line() }
                 Look.HOUR -> { row("시계 문자판 · THE HOUR", if (look.hourDial == 0) "NOIR" else "IVOIRE", true) { choiceSheet(0) }; line() }
                 Look.LIBRARY -> { row("원고지 순서 · THE LIBRARY", if (look.libOrder == 0) "세로" else "가로", true) { choiceSheet(1) }; line()
@@ -1716,8 +1761,8 @@ class MainActivity : ComponentActivity(), MediaHost {
             row("HA 연결 · 미디어", if (look.haToken.isBlank()) "연결 안 됨" else "토큰 있음", true) { tokenSheet() }; line()
             FineVol.init(getSystemService(AUDIO_SERVICE) as android.media.AudioManager)
             row("폰 볼륨 · PHONE", FineVol.note, false) {}; line()
-            row("알림 점 · 앱 사용 기록", if (Badges.usageGranted(this)) "허용됨" else "허용 필요", true) {
-                openSafely(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }; line()
+            val need = permNeed()
+            row("권한 · 알림 점과 미디어", if (need == 0) "모두 허용됨" else "${need}개 필요", true) { permSheet() }; line()
             row("터치 기록 보기 · 진단", null, true) { touchLogSheet() }; line()
             row("폴더 추가", null, repo.folderCount() < AppRepo.MAX_FOLDERS) {
                 // 저장을 눌러야 폴더가 생김 (취소하면 아무것도 안 생김)
@@ -1728,8 +1773,7 @@ class MainActivity : ComponentActivity(), MediaHost {
             row("폴더 이름 모두 원래대로", null, repo.hasRenamedDefaults()) { repo.resetAllNames(); refreshAll() }; line()
             val dd = repo.deletedDefaults().size
             if (dd > 0) { row("기본 폴더 되살리기", "$dd", repo.folderCount() < AppRepo.MAX_FOLDERS) { repo.restoreDefaults(); refreshAll() }; line() }
-            row("기본 홈 앱 바꾸기", null, true) { openSafely(Intent(Settings.ACTION_HOME_SETTINGS)) }; line()
-            row("알림 점 · 미디어 허용", null, true) { openSafely(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+            row("기본 홈 앱 바꾸기", null, true) { openSafely(Intent(Settings.ACTION_HOME_SETTINGS)) }
             val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(list) }
             list.measure(View.MeasureSpec.makeMeasureSpec(root.width - dp(48f), View.MeasureSpec.EXACTLY), View.MeasureSpec.UNSPECIFIED)
             sh.addView(sv, LinearLayout.LayoutParams(-1, minOf(list.measuredHeight, (root.height * .68f).toInt())))
@@ -1778,12 +1822,12 @@ class MainActivity : ComponentActivity(), MediaHost {
     /** 두 가지 중 고르기 시트 (0 HOUR 문자판 · 1 LIBRARY 원고지 순서) — 누르면 바로 바뀜 */
     private fun choiceSheet(kind: Int) {
         openSheet { sh ->
-            sheetKicker(sh, if (kind == 0) "THE HOUR · 문자판" else "THE LIBRARY · 원고지 순서")
+            sheetKicker(sh, when (kind) { 0 -> "THE HOUR · 문자판"; 1 -> "THE LIBRARY · 원고지 순서"; else -> "THE VOYAGE · 라벨 순서" })
             sh.addView(label("누르면 바로 바뀝니다", Style.kr(this, 300), 13f, Style.ink(.6f), 0f, Gravity.START), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14f) })
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             val tiles = ArrayList<View>(); val marks = ArrayList<View>()
-            val cur = { if (kind == 0) look.hourDial else look.libOrder }
-            val acc = if (kind == 0) H_GOLD else 0xFFC0533F.toInt()
+            val cur = { when (kind) { 0 -> look.hourDial; 1 -> look.libOrder; else -> look.trainOrder } }
+            val acc = when (kind) { 0 -> H_GOLD; 1 -> 0xFFC0533F.toInt(); else -> V_INK }
             // 고른 쪽: 굵은 테(2.5dp) + '● 사용 중' · 안 고른 쪽: 50% 흐리게 (선택이 잘 안 보이던 것 — 성훈님)
             fun paint() {
                 tiles.forEachIndexed { i, t ->
@@ -1796,7 +1840,7 @@ class MainActivity : ComponentActivity(), MediaHost {
                 }
             }
             for (i in 0..1) {
-                val t = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setBackgroundColor(if (kind == 0) Color.BLACK else 0xFFFBF8F1.toInt()); setPadding(dp(10f), dp(12f), dp(10f), dp(10f)) }
+                val t = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setBackgroundColor(when (kind) { 0 -> Color.BLACK; 1 -> 0xFFFBF8F1.toInt(); else -> V_LABEL }); setPadding(dp(10f), dp(12f), dp(10f), dp(10f)) }
                 if (kind == 0) {
                     // 실제 표지와 같은 문자판 (바늘 · 날짜창 포함, 지금 시각)
                     val cal = java.util.Calendar.getInstance()
@@ -1804,13 +1848,14 @@ class MainActivity : ComponentActivity(), MediaHost {
                     t.addView(label(if (i == 0) "NOIR" else "IVOIRE", Style.jost(this, 400), 11f, H_IVORY, .3f), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8f) })
                     t.addView(label(if (i == 0) "검정 세라믹 · 금빛 바늘" else "아이보리 에나멜 · 검정 바늘", Style.kr(this, 300), 11f, tint(.6f, H_IVORY), 0f), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2f) })
                 } else {
-                    t.addView(label(if (i == 0) "세로 순서" else "가로 순서", Style.kr(this, 400), 15f, M_INK, 0f), LinearLayout.LayoutParams(-1, -2))
-                    t.addView(label(if (i == 0) "왼쪽 1–15 · 오른쪽 16–30" else "왼쪽 → 오른쪽 · 줄마다 두 개", Style.kr(this, 300), 11.5f, 0xFF8A7E6E.toInt(), 0f), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
+                    val ink = if (kind == 1) M_INK else V_INK
+                    t.addView(label(if (i == 0) "세로 순서" else "가로 순서", Style.kr(this, 400), 15f, ink, 0f), LinearLayout.LayoutParams(-1, -2))
+                    t.addView(label(if (i == 0) "왼쪽 1–15 · 오른쪽 16–30" else "왼쪽 → 오른쪽 · 줄마다 두 개", Style.kr(this, 300), 11.5f, if (kind == 1) 0xFF8A7E6E.toInt() else tint(.6f, V_INK), 0f), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
                 }
                 val mk = label("●  사용 중", Style.kr(this, 500), 12f, acc, 0f)
                 t.addView(mk, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8f) }); marks += mk
                 t.setOnClickListener {
-                    if (kind == 0) { look.hourDial = i; themeCover.rebuild(true) } else { look.libOrder = i; refreshGrid() }
+                    when (kind) { 0 -> { look.hourDial = i; themeCover.rebuild(true) }; 1 -> { look.libOrder = i; refreshGrid() }; else -> { look.trainOrder = i; refreshGrid() } }
                     paint()
                 }
                 tiles += t

@@ -213,7 +213,8 @@ internal fun MainActivity.buildStage() {
             val rh = ((H / rows.toFloat()).coerceAtMost(dpf(44f) * k)).roundToInt().coerceAtLeast(dp(36f))
             val cw = (W - dp(12f)) / 2
             folders.forEachIndexed { i, id ->
-                val c = i / rows; val r = i % rows
+                // 세로: 왼쪽 열을 위→아래 먼저 · 가로: 줄마다 왼쪽→오른쪽 (설정 — 성훈님)
+                val c = if (look.trainOrder == 0) i / rows else i % 2; val r = if (look.trainOrder == 0) i % rows else i / 2
                 val v = labelView(id, shortName(repo.nameOf(id)), id in favs, repo.appsIn(id).any { it.pkg in badges })
                 dimIfNot(v, id)
                 stageIn.addView(v, FrameLayout.LayoutParams(cw, rh - dp(4f)).apply { leftMargin = c * (cw + dp(12f)); topMargin = r * rh })
