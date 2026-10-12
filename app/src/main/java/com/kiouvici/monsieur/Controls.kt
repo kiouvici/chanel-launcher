@@ -52,7 +52,7 @@ class Slide(ctx: Context, val min: Float, val max: Float, val step: Float, var v
         val v = ((raw / step).roundToInt() * step).coerceIn(min, max)
         if (v != value) {
             // 기본값 눈금을 지날 때 '틱' (샤넬팀)
-            if ((value - def) * (v - def) <= 0f && v != value) buzz(android.view.HapticFeedbackConstants.CLOCK_TICK)
+            if ((value - def) * (v - def) <= 0f && v != value) hap(Hap.SEL)
             value = v; invalidate(); onChange?.invoke(v)
         }
     }

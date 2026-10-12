@@ -709,7 +709,7 @@ internal fun MainActivity.showLibraryOpen(id: String, page: Int = 0, turnDir: In
     themeContent = book
     if (oldLayer != null) {
         // 책장 넘김: 새 쪽이 책등을 축으로 넘어와 내려앉음 + 넘어가는 면에 그늘 (종이 휘기 대신 — 샤넬팀)
-        root.removeView(oldLayer); footVisible(false)
+        root.removeView(oldLayer); footVisible(false); book.hap(Hap.LIGHT)
         if (motionMode == 0) {
             val pageV = if (turnDir > 0) right else left
             pageV.cameraDistance = 12000 * resources.displayMetrics.density
@@ -804,7 +804,7 @@ internal fun MainActivity.showCollection() {
     collPlace = { place() }
     fun applySel() {
         if (sel == look.theme) return
-        applyBtn.buzz(if (android.os.Build.VERSION.SDK_INT >= 30) android.view.HapticFeedbackConstants.CONFIRM else android.view.HapticFeedbackConstants.CLOCK_TICK)
+        applyBtn.hap(Hap.SUCCESS)
         applyTheme(sel); collChanged = true
         hideCollection()   // collChanged → 서랍 닫고 표지(홈)로
     }
@@ -816,7 +816,7 @@ internal fun MainActivity.showCollection() {
             MotionEvent.ACTION_DOWN -> { x0 = e.x; true }
             MotionEvent.ACTION_UP -> {
                 val dx = e.x - x0
-                if (kotlin.math.abs(dx) > dp(40f)) { sel = (sel + if (dx < 0) 1 else -1).coerceIn(0, 4); place() }
+                if (kotlin.math.abs(dx) > dp(40f)) { val o = sel; sel = (sel + if (dx < 0) 1 else -1).coerceIn(0, 4); if (o != sel) rail.hap(Hap.SEL); place() }
                 else {
                     val cx = rail.width / 2f
                     when {

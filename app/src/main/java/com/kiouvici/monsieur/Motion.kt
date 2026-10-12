@@ -69,6 +69,7 @@ internal fun MainActivity.motionOpen(content: View, flipBack: View? = null, scri
         }
     }
     content.alpha = 0f; scrim?.invoke(0f)
+    content.hap(Hap.LIGHT)
     content.post {
         val from = lastTap
         val loc = IntArray(2); content.getLocationInWindow(loc)
@@ -132,6 +133,7 @@ internal fun MainActivity.motionClose(content: View, scrim: ((Float) -> Unit)?, 
             return
         }
     }
+    content.hap(Hap.LIGHT)
     val to = lastTap
     val loc = IntArray(2); content.getLocationInWindow(loc)
     val cw = content.width.coerceAtLeast(1).toFloat(); val ch = content.height.coerceAtLeast(1).toFloat()
@@ -276,9 +278,41 @@ internal fun MainActivity.setDot(v: View, on: Boolean) {
         v.animate().scaleX(0f).scaleY(0f).setDuration(160).setInterpolator(android.view.animation.AccelerateInterpolator()).withEndAction { v.visibility = View.GONE; v.scaleX = 1f; v.scaleY = 1f }.start()
     }
 }
-private var lastBuzz = 0L
-/** 진동은 네 순간에만: 길게 누름 · 기본값 눈금 지남 · 칸 바꿈 · 테마 적용 (100ms 안 두 번 금지) */
-internal fun View.buzz(kind: Int) {
-    val now = android.os.SystemClock.uptimeMillis(); if (now - lastBuzz < 100) return; lastBuzz = now
-    performHapticFeedback(kind)
+/**
+ * 진동 — 애플 규칙 (성훈님: "애플처럼 짧고 약하게, 계속 울려도 안 피곤하게")
+ * 선택(selection): 칸·견본·페이지·테마 고르기가 바뀔 때 — 가장 약한 '틱'
+ * 가벼운 충격(light): 서랍·폴더·시트가 열리고 닫혀 자리에 닿을 때, 책장 넘김
+ * 중간 충격(medium): 길게 눌러 들어 올림·메뉴
+ * 성공(success): 테마 적용 — 짧은 두 번
+ * 휴대폰의 '터치 진동' 설정을 따름 (USAGE_TOUCH)
+ */
+object Hap {
+    const val SEL = 0; const val LIGHT = 1; const val MEDIUM = 2; const val SUCCESS = 3
+    private var last = 0L
+    fun play(v: View, kind: Int) {
+        val now = android.os.SystemClock.uptimeMillis(); if (now - last < 40) return; last = now
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                val vib = (v.context.getSystemService(android.os.VibratorManager::class.java))?.defaultVibrator
+                if (vib != null && vib.hasVibrator() && vib.areAllPrimitivesSupported(android.os.VibrationEffect.Composition.PRIMITIVE_TICK, android.os.VibrationEffect.Composition.PRIMITIVE_CLICK)) {
+                    val c = android.os.VibrationEffect.startComposition()
+                    when (kind) {
+                        SEL -> c.addPrimitive(android.os.VibrationEffect.Composition.PRIMITIVE_TICK, .35f)
+                        LIGHT -> c.addPrimitive(android.os.VibrationEffect.Composition.PRIMITIVE_TICK, .7f)
+                        MEDIUM -> c.addPrimitive(android.os.VibrationEffect.Composition.PRIMITIVE_CLICK, .45f)
+                        else -> { c.addPrimitive(android.os.VibrationEffect.Composition.PRIMITIVE_CLICK, .35f); c.addPrimitive(android.os.VibrationEffect.Composition.PRIMITIVE_TICK, .6f, 70) }
+                    }
+                    vib.vibrate(c.compose(), android.os.VibrationAttributes.createForUsage(android.os.VibrationAttributes.USAGE_TOUCH))
+                    return
+                }
+            }
+        } catch (_: Exception) {}
+        v.performHapticFeedback(when (kind) {
+            SEL -> android.view.HapticFeedbackConstants.CLOCK_TICK
+            LIGHT -> android.view.HapticFeedbackConstants.VIRTUAL_KEY
+            MEDIUM -> android.view.HapticFeedbackConstants.LONG_PRESS
+            else -> if (android.os.Build.VERSION.SDK_INT >= 30) android.view.HapticFeedbackConstants.CONFIRM else android.view.HapticFeedbackConstants.VIRTUAL_KEY
+        })
+    }
 }
+internal fun View.hap(kind: Int) = Hap.play(this, kind)

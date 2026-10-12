@@ -763,8 +763,10 @@ class MainActivity : ComponentActivity(), MediaHost {
             cur = n; layoutPages(0f)
             pages[cur].alpha = 0f; pages[cur].animate().alpha(1f).setDuration(120).start(); return
         }
+        if (n != cur) pager.hap(Hap.SEL)
         pageAnim = ValueAnimator.ofFloat(fromDx, dir * w).apply {
-            duration = 360; interpolator = EASE
+            // 부드럽게: 아이폰 페이지 넘김처럼 스프링 (.42 · .92)
+            duration = if (motionMode == 0) 520 else 360; interpolator = if (motionMode == 0) SpringInterp(.42f, .92f, 520) else EASE
             addUpdateListener { layoutPages(it.animatedValue as Float) }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(a: android.animation.Animator) { cur = n; layoutPages(0f) }
@@ -916,7 +918,10 @@ class MainActivity : ComponentActivity(), MediaHost {
         anim = ValueAnimator.ofFloat(openP, target).apply {
             // 부드럽게: 애플식 스프링(0.45초 · 감쇠 .86) — 넘치는 부분은 잘라서 상자 아래가 비지 않게 · 짧게: 0.18초
             duration = if (smooth) 620 else 180; interpolator = if (smooth) Springs.drawer() else EASE
-            addUpdateListener { setOpen((it.animatedValue as Float).coerceIn(0f, 1f)) }
+            var tapped = false
+            addUpdateListener { val v = it.animatedValue as Float; setOpen(v.coerceIn(0f, 1f))
+                // 자리에 닿는 순간 가벼운 '톡' (애플)
+                if (!tapped && ((target == 1f && v >= .98f) || (target == 0f && v <= .02f))) { tapped = true; box.hap(Hap.LIGHT) } }
             start()
         }
     }
@@ -1488,7 +1493,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         var x0 = 0f; var y0 = 0f; var longed = false; var dragged = false; var moved = false
         val onLong = Runnable {
             longed = true
-            cell.buzz(android.view.HapticFeedbackConstants.LONG_PRESS)
+            cell.hap(Hap.MEDIUM)
             cell.parent?.requestDisallowInterceptTouchEvent(true)
             // 길게 누르면 들어 올림 102% + 그림자 (흔들림 대신 — 샤넬팀)
             if (motionMode == 2) { iv.scaleX = 1.02f; iv.scaleY = 1.02f } else iv.animate().scaleX(1.02f).scaleY(1.02f).translationZ(dpf(8f)).setDuration(if (motionMode == 0) 420 else 120).setInterpolator(if (motionMode == 0) Springs.lift() else EASE).start()
@@ -1669,6 +1674,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         layer.addView(m, FrameLayout.LayoutParams(mw, mh).apply { leftMargin = x; topMargin = y })
         root.addView(layer, FrameLayout.LayoutParams(-1, -1))
         menuLayer = layer
+        m.hap(Hap.MEDIUM)
         when (motionMode) {
             0 -> {
                 // 누른 자리에서 피어남 (85%→100%, 스프링 .35 · .80) + 뒤 어둡게 30% · 흐림 6dp
@@ -1742,6 +1748,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         root.addView(sw, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
         sheetBg = bg; sheet = sh; sheetWrap = sw
         placeSheet(sh)
+        sh.hap(Hap.LIGHT)
         bg.animate().alpha(.4f).setDuration(if (reduceMotion) 120 else 280).start()
         if (!reduceMotion) { sw.translationY = dpf(200f); sw.animate().translationY(0f).setDuration(280).setInterpolator(EASE).start() }
     }
@@ -1918,7 +1925,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         opts.forEachIndexed { i, n ->
             val s = label(n, if (latin) Style.jost(this, 400) else Style.kr(this, 400), if (latin) 10f else 13f, Style.INK, if (latin) .2f else 0f).apply {
                 gravity = Gravity.CENTER
-                setOnClickListener { if (get() != i) buzz(android.view.HapticFeedbackConstants.CLOCK_TICK); set(i); paint() }
+                setOnClickListener { if (get() != i) hap(Hap.SEL); set(i); paint() }
             }
             segs += s
             ir.addView(s, LinearLayout.LayoutParams(dp(w), dp(44f)).apply { if (i > 0) leftMargin = dp(8f) })
@@ -2101,7 +2108,7 @@ class MainActivity : ComponentActivity(), MediaHost {
                 val sw = View(this).apply { background = swatch(c, target) }
                 col.addView(sw, LinearLayout.LayoutParams(dp(34f), dp(34f)))
                 col.addView(label(n, Style.kr(this, 300), 10f, Style.ink(.6f), 0f), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(5f) })
-                col.setOnClickListener { cur = c; paintPv(); paintMarks() }
+                col.setOnClickListener { if (cur != c) col.hap(Hap.SEL); cur = c; paintPv(); paintMarks() }
                 marks += c to sw
                 swRow.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
             }
