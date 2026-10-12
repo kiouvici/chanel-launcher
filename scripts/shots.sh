@@ -26,7 +26,6 @@ for t in 0 1 2 3 4; do
   adb exec-out screencap -p > shots/t${t}_3_open.png
   adb shell input keyevent KEYCODE_BACK; sleep 1
 done
-adb logcat -d -s AndroidRuntime:E MNS:D > shots/crash.txt || true
 ls -la shots
 adb shell am start -n $A --ei theme 1 --ei page 0 --es sheet settings; sleep 4
 adb exec-out screencap -p > shots/s_settings.png
@@ -79,4 +78,13 @@ for st in 0 1 2 3 4; do
 done
 adb shell am start -n $A --ei libstyle 1 --es sheet settings; sleep 4
 adb exec-out screencap -p > shots/s_settings_lib.png
+adb logcat -d -s AndroidRuntime:E MNS:D > shots/crash.txt || true
+# build-36 진단: 다른 앱 → 뒤로 → 바로 끌어올리기, 그리고 터치 기록 화면
+adb shell am start -n $A --ei theme 0 --ei page 0; sleep 4
+adb shell am start -a android.settings.SETTINGS; sleep 3
+adb shell input keyevent KEYCODE_BACK; sleep 0.2
+adb shell input swipe 540 1900 540 900 200; sleep 2
+adb shell input keyevent KEYCODE_BACK; sleep 2
+adb shell am start -n $A --es sheet touchlog; sleep 4
+adb exec-out screencap -p > shots/s_touchlog.png
 adb logcat -d -s AndroidRuntime:E MNS:D > shots/crash.txt || true

@@ -160,6 +160,7 @@ class MainActivity : ComponentActivity(), MediaHost {
 
     // ───────── 시작 ─────────
     override fun onCreate(savedInstanceState: Bundle?) {
+        TouchLog.install(); TouchLog.add("앱 새로 시작")
         super.onCreate(savedInstanceState)
         repo = AppRepo(this)
         look = Look(this)
@@ -288,6 +289,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         if (i.hasExtra("libstyle")) { look.libStyle = i.getIntExtra("libstyle", 1); applyTheme(look.theme) }
         when (i.getStringExtra("sheet")) {
             "dial" -> root.postDelayed({ setOpen(1f); choiceSheet(0) }, 400)
+            "touchlog" -> root.postDelayed({ touchLogSheet() }, 400)
             "sound" -> root.postDelayed({ soundSheet(i.getIntExtra("demo", 1) - 1, H_GOLD) {} }, 400)
             "settings" -> root.postDelayed({ setOpen(1f); showSettingsSheet() }, 400)
             "display" -> root.postDelayed({ setOpen(1f); displaySheet() }, 400)
@@ -300,8 +302,33 @@ class MainActivity : ComponentActivity(), MediaHost {
         }, 400)
     }
 
+    override fun onRestart() { super.onRestart(); TouchLog.mark("다른 앱에서 돌아옴") }
+    override fun onStart() { super.onStart(); TouchLog.add("onStart") }
+    override fun onStop() { super.onStop(); TouchLog.add("onStop (다른 앱으로)") }
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        TouchLog.add(if (hasFocus) "창 포커스 받음" else "창 포커스 잃음")
+    }
+
+    private var tlMoves = 0
+    override fun dispatchTouchEvent(e: MotionEvent): Boolean {
+        val t0 = android.os.SystemClock.uptimeMillis()
+        val r = super.dispatchTouchEvent(e)
+        val took = android.os.SystemClock.uptimeMillis() - t0
+        val lag = t0 - e.eventTime // 시스템이 터치를 만든 뒤 앱에 오기까지
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> { tlMoves = 0; TouchLog.touchesSinceBase++
+                TouchLog.add("터치 ↓ (${(e.rawX / resources.displayMetrics.density).toInt()},${(e.rawY / resources.displayMetrics.density).toInt()}dp) 도착지연 ${lag}ms 처리 ${took}ms ${if (r) "받음" else "안받음"}") }
+            MotionEvent.ACTION_MOVE -> { tlMoves++; if (tlMoves == 1 || took >= 30) TouchLog.add("움직임 #$tlMoves 도착지연 ${lag}ms 처리 ${took}ms") }
+            MotionEvent.ACTION_UP -> TouchLog.add("터치 ↑ 움직임 ${tlMoves}번 · 화면 ${if (openP > 0f) "서랍" else "p$cur"}")
+            MotionEvent.ACTION_CANCEL -> TouchLog.add("터치 취소")
+        }
+        return r
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        TouchLog.add("onNewIntent ${intent.action?.substringAfterLast('.') ?: ""}")
         if (intent.hasExtra("theme") || intent.hasExtra("page") || intent.hasExtra("drawer") || intent.hasExtra("sheet") || intent.hasExtra("demo") || intent.hasExtra("libstyle")) { root.postDelayed({ shotIntent(intent) }, 300); return }
         // 홈 버튼: 열린 것만 닫는다 (서랍은 끌어올리기로만 연다 — 성훈님 결정)
         if (Intent.ACTION_MAIN == intent.action) {
@@ -318,7 +345,8 @@ class MainActivity : ComponentActivity(), MediaHost {
         // 다른 앱에서 돌아올 때 서랍 전체를 다시 그리느라(약 1초) 터치가 늦던 것 — 바뀐 게 있을 때만 다시 그림
         val t0 = android.os.SystemClock.uptimeMillis()
         if (stageSig() != builtSig) refreshGrid()
-        android.util.Log.d("MNS", "resume grid ${android.os.SystemClock.uptimeMillis() - t0}ms")
+        TouchLog.add("onResume · 서랍 확인 ${android.os.SystemClock.uptimeMillis() - t0}ms")
+        TouchLog.firstFrame("복귀")
         media.setShown(cur == 1)
         updateDate()
         root.postDelayed({ refreshWeather() }, 1500)
@@ -361,6 +389,7 @@ class MainActivity : ComponentActivity(), MediaHost {
 
     override fun onPause() {
         super.onPause()
+        TouchLog.add("onPause")
         media.setShown(false)
         CookieManager.getInstance().flush()
     }
@@ -1622,6 +1651,22 @@ class MainActivity : ComponentActivity(), MediaHost {
         sh.addView(label(text, Style.jost(this, 400), 10f, Style.ink(.55f), .3f, Gravity.START), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14f) })
     }
 
+    /** 진단: 홈 복귀 후 터치 기록 (build-36) */
+    private fun touchLogSheet() {
+        openSheet { sh ->
+            sheetKicker(sh, "TOUCH LOG · 터치 기록")
+            // 최근 것이 위로 (화면 한 장에 복귀 직후가 다 보이게)
+            val lines = TouchLog.text().lines().takeLast(44).reversed().joinToString("\n")
+            sh.addView(TextView(this).apply {
+                text = lines; textSize = 9.5f; typeface = android.graphics.Typeface.MONOSPACE
+                setTextColor(Style.INK); setLineSpacing(0f, 1.05f)
+            }, LinearLayout.LayoutParams(-1, -2))
+            val b = label("기록 지우기", Style.kr(this, 400), 13f, Style.INK, 0f, Gravity.CENTER).apply {
+                background = pressedBg(); setOnClickListener { TouchLog.clear(); hideSettingsSheet() } }
+            sh.addView(b, LinearLayout.LayoutParams(-1, dp(48f)).apply { topMargin = dp(10f) })
+        }
+    }
+
     private fun showSettingsSheet() {
         hideKeyboard()
         openSheet { sh ->
@@ -1658,6 +1703,7 @@ class MainActivity : ComponentActivity(), MediaHost {
             row("HA 연결 · 미디어", if (look.haToken.isBlank()) "연결 안 됨" else "토큰 있음", true) { tokenSheet() }; line()
             FineVol.init(getSystemService(AUDIO_SERVICE) as android.media.AudioManager)
             row("폰 볼륨 · PHONE", FineVol.note, false) {}; line()
+            row("터치 기록 보기 · 진단", null, true) { touchLogSheet() }; line()
             row("폴더 추가", null, repo.folderCount() < AppRepo.MAX_FOLDERS) {
                 // 저장을 눌러야 폴더가 생김 (취소하면 아무것도 안 생김)
                 renameSheet("NEW FOLDER", repo.newFolderName(), null, selectAll = true) { repo.addFolder(it); refreshAll() }
