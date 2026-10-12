@@ -985,8 +985,8 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         val sr = soundLine(L, 40f, 372f, 682f, 14f, tint(.85f, V_IVORY), V_IVORY, "바꾸기 ›", tint(.35f, V_IVORY))
         nowViews += listOf(sr, title!!, sub!!, pv, t0!!, t1!!, prev, pl, next)
         fun vrow(top: Float, isAtv: Boolean) {
-            // 블랙: 남색 상자 + 아이보리 글자, 단추는 아이보리 바탕에 남색 글자
-            val dv = Dk.voy
+            // 블랙에서도 아이보리 상자 + 남색 글자·단추 (서랍 라벨·카드와 한 벌 — 성훈님 선택)
+            val dv = false
             val r = FrameLayout(context).apply { setBackgroundColor(if (dv) Dk.VOY_NAVY else 0xFFDCD5C6.toInt()) }; L.addLR(r, 40f, 40f, top, 44f)
             val R1 = Lay(context, r, L.w - L.x(80f), L.z(44f), 332f, 44f)
             val nm = R1.t(if (isAtv) "Apple TV" else "Marantz", Fonts.serif(context), 15f, if (dv) V_IVORY else V_INK, .02f).also { R1.add(it, 16f, 12f) }
