@@ -683,19 +683,21 @@ class MainActivity : ComponentActivity(), MediaHost {
     /** 가로로 민 것만 가로채서 화면을 넘김 (세로 스크롤은 HA에 그대로) */
     private inner class Pager : FrameLayout(this@MainActivity) {
         private var x0 = 0f; private var y0 = 0f; private var dragging = false
-        private var vertical = false; private var p0 = 0f
+        private var vertical = false; private var p0 = 0f; private var shadeDone = false
         private val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
         private var vt: android.view.VelocityTracker? = null
         override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
             when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { x0 = e.x; y0 = e.y; dragging = false; vertical = false; p0 = openP; pageAnim?.cancel()
+                MotionEvent.ACTION_DOWN -> { x0 = e.x; y0 = e.y; dragging = false; vertical = false; shadeDone = false; p0 = openP; pageAnim?.cancel()
                     vt?.recycle(); vt = android.view.VelocityTracker.obtain(); vt?.addMovement(e) }
                 MotionEvent.ACTION_MOVE -> {
                     vt?.addMovement(e)
                     val dx = e.x - x0; val dy = e.y - y0
                     if (kotlin.math.abs(dx) > slop * 2 && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.2f) { dragging = true; x0 = e.x - dx; return true }
-                    // 표지 위 사진·버튼을 누른 채 위로 쓸어도 서랍이 열림
-                    if ((cur == 0 || cur == 1) && -dy > maxOf(slop * 2f, dpf(24f)) && kotlin.math.abs(dy) > kotlin.math.abs(dx) * 1.2f) { vertical = true; y0 = e.y - dy; return true }
+                    // 표지 위 사진·버튼을 누른 채 위로 쓸어도 서랍이 열림 — 더 예민하게(12dp, 세로가 가로보다 크면) (10번에 2번 안 되던 것)
+                    if ((cur == 0 || cur == 1) && -dy > dpf(12f) && kotlin.math.abs(dy) > kotlin.math.abs(dx)) { vertical = true; y0 = e.y - dy; return true }
+                    // 아래로 쓸면 아이폰처럼: 왼쪽 절반 알림 · 오른쪽 절반 빠른 설정. HA 화면은 위쪽 100dp에서 시작할 때만 (HA 안 스크롤과 안 겹치게)
+                    if (!shadeDone && dy > dpf(28f) && dy > kotlin.math.abs(dx) * 1.5f && (cur == 0 || cur == 1 || y0 < dpf(100f))) { shadeDone = true; expandShade(x0 > width / 2f); return true }
                 }
             }
             return false
@@ -704,7 +706,7 @@ class MainActivity : ComponentActivity(), MediaHost {
             vt?.addMovement(e)
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    x0 = e.x; y0 = e.y; dragging = false; vertical = false; p0 = openP; pageAnim?.cancel()
+                    x0 = e.x; y0 = e.y; dragging = false; vertical = false; shadeDone = false; p0 = openP; pageAnim?.cancel()
                     vt?.recycle(); vt = android.view.VelocityTracker.obtain(); vt?.addMovement(e)
                     return true
                 }
@@ -712,6 +714,8 @@ class MainActivity : ComponentActivity(), MediaHost {
                     val dx = e.x - x0; val dy = e.y - y0
                     // 표지에서는 위로 쓸어 올리면 어디서든 앱 상자가 열림
                     if (!dragging && !vertical && (cur == 0 || cur == 1) && -dy > slop && kotlin.math.abs(dy) > kotlin.math.abs(dx)) vertical = true
+                    if (!dragging && !vertical && !shadeDone && dy > dpf(28f) && dy > kotlin.math.abs(dx) * 1.5f && (cur == 0 || cur == 1 || y0 < dpf(100f))) { shadeDone = true; expandShade(x0 > width / 2f); return true }
+                    if (shadeDone) return true
                     if (vertical) { setOpen((p0 + (-dy) / boxH.coerceAtLeast(1)).coerceIn(0f, 1f)); return true }
                     if (!dragging && kotlin.math.abs(dx) > slop && kotlin.math.abs(dx) > kotlin.math.abs(dy)) dragging = true
                     if (dragging) layoutPages(dx)
@@ -721,7 +725,7 @@ class MainActivity : ComponentActivity(), MediaHost {
                     if (vertical) {
                         vertical = false
                         vt?.computeCurrentVelocity(1000); val vy = vt?.yVelocity ?: 0f
-                        animateOpen(if (openP > .35f || vy < -dpf(1000f)) 1f else 0f); return true
+                        animateOpen(if (openP > .2f || vy < -dpf(500f)) 1f else 0f); return true
                     }
                     if (!dragging) { layoutPages(0f); return true }
                     val dx = e.x - x0
@@ -819,24 +823,31 @@ class MainActivity : ComponentActivity(), MediaHost {
         private var y0 = 0f; private var x0 = 0f; private var drag = false
         private val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
         private var vt: android.view.VelocityTracker? = null
+        /** 아래로 끌어 닫기 시작할지: 위쪽 300dp에서 시작했거나 목록이 맨 위일 때, 세로로 slop(약 8dp) 넘게 */
+        private fun startDrag(e: MotionEvent): Boolean {
+            val dy = e.rawY - y0
+            val atTop = !::stage.isInitialized || stage.scrollY == 0 || (y0 - box.top - box.translationY) < dpf(300f)
+            if (atTop && card.visibility != View.VISIBLE && themeOpen == null && dy > slop && dy > kotlin.math.abs(e.rawX - x0)) {
+                drag = true; y0 = e.rawY - dy; hideKeyboard(); return true
+            }
+            return false
+        }
         override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> { y0 = e.rawY; x0 = e.rawX; drag = false
                     vt?.recycle(); vt = android.view.VelocityTracker.obtain(); vt?.addMovement(e) }
-                MotionEvent.ACTION_MOVE -> {
-                    vt?.addMovement(e)
-                    val dy = e.rawY - y0
-                    val atTop = !::stage.isInitialized || stage.scrollY == 0 || (y0 - box.top - box.translationY) < dpf(300f)
-                    if (atTop && card.visibility != View.VISIBLE && themeOpen == null && dy > slop * 2 && dy > kotlin.math.abs(e.rawX - x0) * 1.2f) {
-                        drag = true; y0 = e.rawY - dy; hideKeyboard(); return true
-                    }
-                }
+                MotionEvent.ACTION_MOVE -> { vt?.addMovement(e); if (startDrag(e)) return true }
             }
             return false
         }
         @SuppressLint("ClickableViewAccessibility")
         override fun onTouchEvent(e: MotionEvent): Boolean {
-            if (!drag) return super.onTouchEvent(e)
+            // 빈 자리(맨 위 여백 등)를 잡고 끌 때는 가로채기가 불리지 않아 반응이 없던 것 — 여기서도 시작
+            if (!drag) {
+                if (e.actionMasked == MotionEvent.ACTION_DOWN) { y0 = e.rawY; x0 = e.rawX; vt?.recycle(); vt = android.view.VelocityTracker.obtain(); vt?.addMovement(e) }
+                if (e.actionMasked == MotionEvent.ACTION_MOVE) { vt?.addMovement(e); if (startDrag(e)) return true }
+                super.onTouchEvent(e); return true
+            }
             vt?.addMovement(e)
             when (e.actionMasked) {
                 MotionEvent.ACTION_MOVE -> setOpen((1f - (e.rawY - y0) / boxH.coerceAtLeast(1)).coerceIn(0f, 1f))
@@ -1443,6 +1454,15 @@ class MainActivity : ComponentActivity(), MediaHost {
     /** 열린 폴더가 떠 있는 동안 서랍의 검색줄·하단 문구를 숨김 (리본·닫기와 겹치지 않게) */
     internal fun footVisible(on: Boolean) {
         listOf(search.parent as? View, folio.parent?.parent as? View).forEach { it?.visibility = if (on) View.VISIBLE else View.INVISIBLE }
+    }
+
+    /** 알림창(false) · 빠른 설정(true) 내리기 — 런처들이 쓰는 상태바 기능 (EXPAND_STATUS_BAR) */
+    @SuppressLint("WrongConstant")
+    internal fun expandShade(settings: Boolean) {
+        try {
+            val sb = getSystemService("statusbar") ?: return
+            Class.forName("android.app.StatusBarManager").getMethod(if (settings) "expandSettingsPanel" else "expandNotificationsPanel").invoke(sb)
+        } catch (e: Throwable) { android.util.Log.d("MNS", "shade fail $e") }
     }
 
     internal fun hideKeyboardFor(v: View) { (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(v.windowToken, 0) }
