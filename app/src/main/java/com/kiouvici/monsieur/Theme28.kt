@@ -49,6 +49,17 @@ private fun drawableOf(fn: (Canvas, android.graphics.Rect) -> Unit): Drawable = 
 class HourDial(ctx: Context, var kind: Int) : View(ctx) {
     var hour = 10; var minute = 8; var day = 1
     private var shownMin = -1f
+    /** 홈 복귀 때 바늘이 지금 시각으로 돌아 들어옴 (0→1): 분침 −40°, 시침 −10°에서 시작 (샤넬팀) */
+    var sweep = 1f
+    private var sweepAnim: ValueAnimator? = null
+    fun sweepIn() {
+        sweepAnim?.cancel(); sweep = 0f; invalidate()
+        sweepAnim = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 900; startDelay = 120; interpolator = SpringInterp(.6f, .75f, 900)
+            addUpdateListener { sweep = it.animatedValue as Float; invalidate() }
+            start()
+        }
+    }
     private var anim: ValueAnimator? = null
     private val bmpA = Style.img(ctx, "th/hour_dial_a.webp")
     private val bmpB = Style.img(ctx, "th/hour_dial_b.webp")
@@ -112,7 +123,7 @@ class HourDial(ctx: Context, var kind: Int) : View(ctx) {
         }
         // 바늘
         val m = if (shownMin < 0) minute.toFloat() else shownMin
-        val hAng = ((hour % 12) + m / 60f) * 30f; val mAng = m * 6f
+        val hAng = ((hour % 12) + m / 60f) * 30f - 10f * (1 - sweep); val mAng = m * 6f - 40f * (1 - sweep)
         if (kind == 0) {
             hand(c, cx, cy, hAng, 82 * s, 9 * s, 3 * s, 5 * s, 4 * s, true)
             hand(c, cx, cy, mAng, 128 * s, 6.5f * s, 5 * s, 8 * s, 5 * s, true)
@@ -220,6 +231,8 @@ class LabelBg(private val ctx: Context, private val fav: Boolean) : Drawable() {
 class TripPhoto(ctx: Context) : View(ctx) {
     var bmp: Bitmap? = null; set(v) { field = v; invalidate() }
     var s = 1f; var cx = .5f; var cy = .5f
+    /** 기울기 시차 (최대 6dp) — 사진만 움직이고 104%로 키워 가장자리가 안 보이게 */
+    var px = 0f; var py = 0f
     private val p = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     fun dest(w: Float, h: Float, b: Bitmap, s: Float, cx: Float, cy: Float): RectF {
         val k = maxOf(w / b.width, h / b.height) * s.coerceAtLeast(1f)
@@ -231,6 +244,7 @@ class TripPhoto(ctx: Context) : View(ctx) {
     override fun onDraw(c: Canvas) {
         val b = bmp ?: return
         c.save(); c.clipRect(0f, 0f, width.toFloat(), height.toFloat())
+        if (px != 0f || py != 0f) { c.translate(width / 2f + px, height / 2f + py); c.scale(1.04f, 1.04f); c.translate(-width / 2f, -height / 2f) }
         c.drawBitmap(b, null, dest(width.toFloat(), height.toFloat(), b, s, cx, cy), p)
         c.restore()
     }

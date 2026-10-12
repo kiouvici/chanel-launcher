@@ -39,6 +39,38 @@ class ThemeCover(ctx: Context, private val look: Look) : FrameLayout(ctx) {
 
     val isLight get() = look.theme == Look.LIBRARY && !Dk.lib
 
+    // ── 움직임 (build-39 · 샤넬팀) ──
+    /** HOUR: 바늘이 지금 시각으로 돌아 들어옴 */
+    fun sweepHands() { hDial?.sweepIn() }
+    val hasDial get() = hDial != null
+    /** 기울기 시차: VOYAGE 엽서 사진 · CAPTION 사진만 (글자·시계는 그대로) */
+    fun parallax(dx: Float, dy: Float) {
+        vPhoto?.let { it.px = dx; it.py = dy; it.invalidate() }
+        cPhoto?.let { it.scaleX = 1.04f; it.scaleY = 1.04f; it.translationX = dx; it.translationY = dy }
+    }
+    val wantsParallax get() = vPhoto != null || cPhoto != null
+    /** CAPTION: 폴라로이드 현상 — 흰 막이 걷히고 흑백에서 컬러로 (1.2초 감속). 흑백 그림은 한 번만 만듦 */
+    fun develop() {
+        val ph = cPhoto ?: return
+        val src = photoBmp ?: Style.img(context, "th/stair.webp")
+        val gray = try {
+            val sm = Bitmap.createScaledBitmap(src, (src.width / 2).coerceAtLeast(1), (src.height / 2).coerceAtLeast(1), true)
+            Bitmap.createBitmap(sm.width, sm.height, Bitmap.Config.ARGB_8888).also { g ->
+                android.graphics.Canvas(g).drawBitmap(sm, 0f, 0f, android.graphics.Paint().apply { colorFilter = android.graphics.ColorMatrixColorFilter(android.graphics.ColorMatrix().apply { setSaturation(0f) }) })
+            }
+        } catch (e: Exception) { null }
+        val gv = View(context).apply { background = Pic(gray ?: src, Pic.COVER); isClickable = false; scaleX = ph.scaleX; scaleY = ph.scaleY }
+        val white = View(context).apply { setBackgroundColor(0xFFF8F6F1.toInt()); isClickable = false }
+        val idx = indexOfChild(ph) + 1
+        addView(gv, idx, LayoutParams(-1, -1)); addView(white, idx + 1, LayoutParams(-1, -1))
+        android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 1200; interpolator = android.view.animation.DecelerateInterpolator(1.6f)
+            addUpdateListener { val t = it.animatedValue as Float; white.alpha = (1 - t / .55f).coerceIn(0f, 1f); gv.alpha = (1 - (t - .25f) / .75f).coerceIn(0f, 1f) }
+            addListener(object : android.animation.AnimatorListenerAdapter() { override fun onAnimationEnd(a: android.animation.Animator) { removeView(gv); removeView(white) } })
+            start()
+        }
+    }
+
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
         super.onSizeChanged(w, h, ow, oh)
         if (w > 0 && h > 0) post { rebuild(true) }
