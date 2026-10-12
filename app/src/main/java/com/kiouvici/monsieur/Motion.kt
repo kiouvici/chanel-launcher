@@ -179,6 +179,7 @@ internal fun MainActivity.motionClose(content: View, scrim: ((Float) -> Unit)?, 
 /** 뒤(서랍) 흐림 6px — 안드로이드 12 이상 */
 internal fun MainActivity.blurBehind(p: Float) {
     if (android.os.Build.VERSION.SDK_INT < 31 || motionMode != 0) return
+    if (p > 0f && cardFolder == "__search") return   // 검색 중엔 흐림 없이 (키보드와 함께 버벅이던 것)
     val r = 6f * resources.displayMetrics.density * p
     try { box.setRenderEffect(if (r < .5f) null else android.graphics.RenderEffect.createBlurEffect(r, r, android.graphics.Shader.TileMode.CLAMP)) } catch (_: Exception) {}
 }
