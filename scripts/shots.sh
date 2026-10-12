@@ -26,7 +26,6 @@ for t in 0 1 2 3 4; do
   adb exec-out screencap -p > shots/t${t}_3_open.png
   adb shell input keyevent KEYCODE_BACK; sleep 1
 done
-adb logcat -d -s AndroidRuntime:E MNS:D > shots/crash.txt || true
 ls -la shots
 adb shell am start -n $A --ei theme 1 --ei page 0 --es sheet settings; sleep 4
 adb exec-out screencap -p > shots/s_settings.png
@@ -88,3 +87,4 @@ adb shell input swipe 540 1900 540 900 200; sleep 2
 adb shell input keyevent KEYCODE_BACK; sleep 2
 adb shell am start -n $A --es sheet touchlog; sleep 4
 adb exec-out screencap -p > shots/s_touchlog.png
+adb logcat -d -s AndroidRuntime:E MNS:D > shots/crash.txt || true
