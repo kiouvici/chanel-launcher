@@ -104,7 +104,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     private var mzBtn: TextView? = null
     private var mzName: TextView? = null
     private var lightBg = false
-    // 볼륨 (재생 중인 기기: 0 PHONE · 1 MARANTZ, 마란츠 상한 50)
+    // 볼륨 (재생 중인 기기: 0 PHONE · 1 MARANTZ, 마란츠 상한 60)
     private var vol: VolBar? = null
     private var volLbl: TextView? = null
     private var volVal: TextView? = null
@@ -534,7 +534,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         val mzPlaying = mz?.optString("state") == "playing"
         volTarget = if (Ha.on(mz) && (spOnMz || (mzPlaying && !phoneLocal))) 1 else 0
         val v = vol ?: return
-        v.max = if (volTarget == 1) 50 else 150
+        v.max = if (volTarget == 1) 60 else 150
         setVolLabel(if (volTarget == 1) "MARANTZ" else "PHONE")
         if (SystemClock.uptimeMillis() - volTouch < 700) return
         val value = if (volTarget == 1) {
@@ -565,7 +565,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
             }
         } else {
             val now = SystemClock.uptimeMillis()
-            mzPend = x.coerceAtMost(50); mzPendAt = now
+            mzPend = x.coerceAtMost(60); mzPendAt = now
             if (!final && now - volSent < 250) return
             volSent = now
             Ha.call(look.haToken, "media_player", "volume_set", JSONObject().put("entity_id", Ha.MARANTZ).put("volume_level", mzPend / 100.0)) { if (final) pollLater() }
@@ -577,7 +577,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
             padPx = L.zf(8f)
             onChange = { setVol(it, false) }; onRelease = { setVol(it, true) }
         }
-        L.add(vb, x0 - 8f, y - 22f, x1 - x0 + 16f, 44f); vol = vb
+        L.add(vb, x0 - 8f, y - 30f, x1 - x0 + 16f, 60f); vol = vb // 잡는 높이 44→60 (build-37)
         volLbl = L.t("PHONE", Style.jost(context, 400), 11f, labelColor, .12f).also { L.add(it, x0, y + labelTop) }
         volVal = L.t("0", Style.jost(context, 500), 11f, numColor, 0f, Gravity.END).apply { fontFeatureSettings = "tnum" }.also { L.add(it, x1 - 40f, y + labelTop, 40f) }
         nowViews += listOf(volLbl!!, vb, volVal!!)

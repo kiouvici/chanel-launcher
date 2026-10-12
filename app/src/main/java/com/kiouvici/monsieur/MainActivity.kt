@@ -310,17 +310,18 @@ class MainActivity : ComponentActivity(), MediaHost {
         TouchLog.add(if (hasFocus) "창 포커스 받음" else "창 포커스 잃음")
     }
 
-    private var tlMoves = 0
+    private var tlMoves = 0; private var tlX = 0f; private var tlY = 0f
     override fun dispatchTouchEvent(e: MotionEvent): Boolean {
         val t0 = android.os.SystemClock.uptimeMillis()
         val r = super.dispatchTouchEvent(e)
         val took = android.os.SystemClock.uptimeMillis() - t0
         val lag = t0 - e.eventTime // 시스템이 터치를 만든 뒤 앱에 오기까지
         when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> { tlMoves = 0; TouchLog.touchesSinceBase++
+            MotionEvent.ACTION_DOWN -> { tlMoves = 0; tlX = e.rawX; tlY = e.rawY; TouchLog.touchesSinceBase++
                 TouchLog.add("터치 ↓ (${(e.rawX / resources.displayMetrics.density).toInt()},${(e.rawY / resources.displayMetrics.density).toInt()}dp) 도착지연 ${lag}ms 처리 ${took}ms ${if (r) "받음" else "안받음"}") }
             MotionEvent.ACTION_MOVE -> { tlMoves++; if (tlMoves == 1 || took >= 30) TouchLog.add("움직임 #$tlMoves 도착지연 ${lag}ms 처리 ${took}ms") }
-            MotionEvent.ACTION_UP -> TouchLog.add("터치 ↑ 움직임 ${tlMoves}번 · 화면 ${if (openP > 0f) "서랍" else "p$cur"}")
+            MotionEvent.ACTION_UP -> { val dn = resources.displayMetrics.density
+                TouchLog.add("터치 ↑ ${e.eventTime - e.downTime}ms 세로 ${((e.rawY - tlY) / dn).toInt()}dp 가로 ${((e.rawX - tlX) / dn).toInt()}dp · ${if (openP > 0f) "서랍" else "p$cur"}") }
             MotionEvent.ACTION_CANCEL -> TouchLog.add("터치 취소")
         }
         return r
@@ -734,9 +735,9 @@ class MainActivity : ComponentActivity(), MediaHost {
                     val dx = e.x - x0; val dy = e.y - y0
                     if (kotlin.math.abs(dx) > slop * 2 && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.2f) { dragging = true; x0 = e.x - dx; return true }
                     // 표지 위 사진·버튼을 누른 채 위로 쓸어도 서랍이 열림 — 더 예민하게(12dp, 세로가 가로보다 크면) (10번에 2번 안 되던 것)
-                    if ((cur == 0 || cur == 1) && -dy > dpf(12f) && kotlin.math.abs(dy) > kotlin.math.abs(dx)) { vertical = true; y0 = e.y - dy; return true }
+                    if ((cur == 0 || cur == 1) && -dy > dpf(6f) && kotlin.math.abs(dy) > kotlin.math.abs(dx)) { vertical = true; y0 = e.y - dy; return true }
                     // 아래로 쓸면 아이폰처럼: 왼쪽 절반 알림 · 오른쪽 절반 빠른 설정. HA 화면은 위쪽 100dp에서 시작할 때만 (HA 안 스크롤과 안 겹치게)
-                    if (!shadeDone && dy > dpf(28f) && dy > kotlin.math.abs(dx) * 1.5f && (cur == 0 || cur == 1 || y0 < dpf(100f))) { shadeDone = true; expandShade(x0 > width / 2f); return true }
+                    if (!shadeDone && dy > dpf(18f) && dy > kotlin.math.abs(dx) * 1.5f && (cur == 0 || cur == 1 || y0 < dpf(100f))) { shadeDone = true; expandShade(x0 > width / 2f); return true }
                 }
             }
             return false
@@ -752,8 +753,8 @@ class MainActivity : ComponentActivity(), MediaHost {
                 MotionEvent.ACTION_MOVE -> {
                     val dx = e.x - x0; val dy = e.y - y0
                     // 표지에서는 위로 쓸어 올리면 어디서든 앱 상자가 열림
-                    if (!dragging && !vertical && (cur == 0 || cur == 1) && -dy > slop && kotlin.math.abs(dy) > kotlin.math.abs(dx)) vertical = true
-                    if (!dragging && !vertical && !shadeDone && dy > dpf(28f) && dy > kotlin.math.abs(dx) * 1.5f && (cur == 0 || cur == 1 || y0 < dpf(100f))) { shadeDone = true; expandShade(x0 > width / 2f); return true }
+                    if (!dragging && !vertical && (cur == 0 || cur == 1) && -dy > dpf(6f) && kotlin.math.abs(dy) > kotlin.math.abs(dx)) vertical = true
+                    if (!dragging && !vertical && !shadeDone && dy > dpf(18f) && dy > kotlin.math.abs(dx) * 1.5f && (cur == 0 || cur == 1 || y0 < dpf(100f))) { shadeDone = true; expandShade(x0 > width / 2f); return true }
                     if (shadeDone) return true
                     if (vertical) { setOpen((p0 + (-dy) / boxH.coerceAtLeast(1)).coerceIn(0f, 1f)); return true }
                     if (!dragging && kotlin.math.abs(dx) > slop && kotlin.math.abs(dx) > kotlin.math.abs(dy)) dragging = true
@@ -766,13 +767,16 @@ class MainActivity : ComponentActivity(), MediaHost {
                         vt?.computeCurrentVelocity(1000); val vy = vt?.yVelocity ?: 0f
                         // 빠르게 짧게 튕긴 것도 열림: 속도 추적이 0으로 나올 때가 있어(10번에 2번) 누른 시점부터의 거리·시간으로도 판단
                         val up = yDown - e.y; val dt = (e.eventTime - tDown).coerceAtLeast(1)
-                        val flick = up > dpf(32f) && dt < 350
-                        animateOpen(if (openP > .15f || vy < -dpf(500f) || flick) 1f else 0f); return true
+                        val flick = up > dpf(16f) && dt < 300
+                        val open = openP > .10f || vy < -dpf(300f) || flick
+                        TouchLog.add("판정: 위로 ${(up / resources.displayMetrics.density).toInt()}dp ${dt}ms → ${if (open) "열림" else "안 열림"}")
+                        animateOpen(if (open) 1f else 0f); return true
                     }
                     if (!dragging) { layoutPages(0f); return true }
                     val dx = e.x - x0
                     vt?.computeCurrentVelocity(1000); val v = vt?.xVelocity ?: 0f
-                    val far = kotlin.math.abs(dx) > width * .25f || (kotlin.math.abs(v) > 1200 && kotlin.math.abs(dx) > slop)
+                    val far = kotlin.math.abs(dx) > width * .18f || (kotlin.math.abs(v) > 800 && kotlin.math.abs(dx) > slop)
+                    TouchLog.add("판정: 옆으로 ${(dx / resources.displayMetrics.density).toInt()}dp → ${if (far) "넘김" else "제자리"}")
                     dragging = false
                     if (far) goPage(if (dx < 0) cur + 1 else cur + N - 1, true, dx) else goBack(dx)
                     return true
@@ -871,7 +875,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         private fun startDrag(e: MotionEvent): Boolean {
             val dy = e.rawY - y0
             val atTop = !::stage.isInitialized || stage.scrollY == 0 || (y0 - box.top - box.translationY) < dpf(300f)
-            if (atTop && card.visibility != View.VISIBLE && themeOpen == null && dy > slop && dy > kotlin.math.abs(e.rawX - x0)) {
+            if (atTop && card.visibility != View.VISIBLE && themeOpen == null && dy > dpf(6f) && dy > kotlin.math.abs(e.rawX - x0)) {
                 drag = true; y0 = e.rawY - dy; hideKeyboard(); return true
             }
             return false
@@ -898,9 +902,11 @@ class MainActivity : ComponentActivity(), MediaHost {
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     drag = false
                     vt?.computeCurrentVelocity(1000); val vy = vt?.yVelocity ?: 0f
-                    // 15%만 끌어 내리거나 살짝 튕기면(600dp/s) 닫힘 — 예전 30%·1000dp/s는 너무 많이 끌어야 했음
+                    // 10%만 끌어 내리거나 살짝 튕기면(400dp/s, 0.3초 안 16dp) 닫힘 — build-37 더 예민하게
                     val down = e.rawY - yDown; val dt = (e.eventTime - tDown).coerceAtLeast(1)
-                    animateOpen(if (openP < .85f || vy > dpf(600f) || (down > dpf(32f) && dt < 350)) 0f else 1f)
+                    val close = openP < .90f || vy > dpf(400f) || (down > dpf(16f) && dt < 300)
+                    TouchLog.add("판정: 아래로 ${(down / resources.displayMetrics.density).toInt()}dp ${dt}ms → ${if (close) "닫힘" else "안 닫힘"}")
+                    animateOpen(if (close) 0f else 1f)
                 }
             }
             return true
