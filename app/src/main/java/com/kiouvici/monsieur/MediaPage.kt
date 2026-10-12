@@ -230,11 +230,20 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     private val spSt get() = home?.get(Ha.SPOTIFY)
     private val haPlaying get() = haOk && spSt?.optString("state") == "playing" && Ha.attr(spSt, "media_title").isNotEmpty()
     private val haPaused get() = haOk && spSt?.optString("state") == "paused" && Ha.attr(spSt, "media_title").isNotEmpty()
+    /** 폰 스피커·이어폰에서 실제로 소리가 나는 재생인지 (스포티파이가 마란츠를 원격 조종하는 것은 아님) */
+    private val ctlLocal get() = ctl?.playbackInfo?.playbackType != MediaController.PlaybackInfo.PLAYBACK_TYPE_REMOTE
+    private val spOnMarantz get() = Ha.attr(spSt, "source").contains("marantz", true)
+    /** 마지막으로 소리가 나던 곳: 0 폰 · 1 마란츠 — 둘 다 멈췄을 때 재생 버튼이 여기로 감 (build-38) */
+    private var lastPlace: Int
+        get() = context.getSharedPreferences("media", 0).getInt("lastPlace", 0)
+        set(v) { context.getSharedPreferences("media", 0).edit().putInt("lastPlace", v).apply() }
     private val mode: Int get() = when {
         demo == 1 || demo == 2 -> 1
         demo == 3 -> 3
-        ctlTitle().isNotEmpty() && ctlPlaying -> 1
+        ctlTitle().isNotEmpty() && ctlPlaying && ctlLocal -> 1
         haPlaying -> 2
+        ctlTitle().isNotEmpty() && ctlPlaying -> 1
+        haPaused && lastPlace == 1 -> 2
         ctlTitle().isNotEmpty() -> 1
         haPaused -> 2
         look.lastTitle.isNotEmpty() -> 3
@@ -265,10 +274,21 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     private var lastArt: Bitmap? = null; private var lastArtLoaded = false
     private val lastArtFile get() = java.io.File(context.filesDir, "last_art.png")
     private fun artBmp(): Bitmap? = if (demo == 1 || demo == 2) Style.img(context, "th/riviera_photo.webp") else when (mode) {
-        1 -> ctl?.metadata?.let { it.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: it.getBitmap(MediaMetadata.METADATA_KEY_ART) ?: it.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON) }
-        2 -> { loadHaArt(); haArt }
+        1 -> bigger(ctlArt(), haArtSame())
+        2 -> { loadHaArt(); bigger(haArt, if (ctlTitle() == Ha.attr(spSt, "media_title")) ctlArt() else null) }
         3 -> { if (!lastArtLoaded) { lastArtLoaded = true; lastArt = try { android.graphics.BitmapFactory.decodeFile(lastArtFile.path) } catch (e: Exception) { null } }; lastArt }
         else -> null
+    }
+    private fun ctlArt(): Bitmap? = ctl?.metadata?.let { it.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: it.getBitmap(MediaMetadata.METADATA_KEY_ART) ?: it.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON) }
+    /** 폰에서 보이는 곡이 HA 스포티파이와 같은 곡이면 HA 그림(보통 640px)도 후보 */
+    private fun haArtSame(): Bitmap? = if (haOk && ctlTitle().isNotEmpty() && ctlTitle() == Ha.attr(spSt, "media_title")) { loadHaArt(); haArt } else null
+    /** 같은 곡 그림 둘 중 큰 것 (작은 그림을 늘려 흐려지던 것 — build-38) */
+    private var artLogKey = ""
+    private fun bigger(a: Bitmap?, b: Bitmap?): Bitmap? {
+        val r = if (a == null) b else if (b == null) a else if (b.width > a.width) b else a
+        val k = "${a?.width}/${b?.width}"
+        if (k != artLogKey) { artLogKey = k; TouchLog.add("앨범 그림 ${a?.width ?: 0}px · ${b?.width ?: 0}px → ${r?.width ?: 0}px 사용") }
+        return r
     }
     private fun loadHaArt() {
         val path = Ha.attr(spSt, "entity_picture")
@@ -489,6 +509,7 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
             (b.getChildAt(0) as? TextView)?.text = if (noToken || !haOk) "HA 연결" else "Marantz에서 듣기"
             b.getChildAt(1)?.visibility = if (noToken || !haOk) View.GONE else View.VISIBLE
         }
+        if (ctlPlaying && ctlLocal) lastPlace = 0 else if (haPlaying && spOnMarantz) lastPlace = 1
         val oldT = volTarget
         updateVol()
         var changed = oldT != volTarget
@@ -604,10 +625,19 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
     private fun doNext() { when (mode) { 1 -> ctl?.transportControls?.skipToNext(); 2 -> haSp("media_next_track"); 3 -> resumeLast() } }
     private fun doPlay() {
         when (mode) {
-            1 -> { val c = ctl?.transportControls ?: return; if (playing) c.pause() else c.play() }
-            2 -> haSp(if (playing) "media_pause" else "media_play")
+            1 -> { val c = ctl?.transportControls ?: return
+                if (playing) { c.pause(); if (haPlaying && spOnMarantz) haSp("media_pause") }   // 둘 다 나오고 있었으면 같이 멈춤
+                else c.play() }
+            2 -> {
+                if (playing) { haSp("media_pause"); pausePhoneLocal() }   // 일시정지 한 번으로 둘 다 멈춤
+                else { pausePhoneLocal(); haSp("media_play") }             // 마란츠에서 듣던 것 → 마란츠에서 재생
+            }
             3 -> resumeLast()
         }
+    }
+    /** 폰에서 실제로 소리 나는 재생만 멈춤 (마란츠를 원격 조종하는 스포티파이 화면은 건드리지 않음) */
+    private fun pausePhoneLocal() {
+        if (ctlPlaying && ctlLocal) { ctl?.transportControls?.pause(); TouchLog.add("폰 재생 멈춤 (마란츠로)") }
     }
     /** 마지막 곡 이어 듣기: 앱을 깨워(삼성 미디어 위젯과 같은 방식 — 최근 재생 요청) 재생, 안 되면 재생 단추 신호 */
     private var browser: android.media.browse.MediaBrowser? = null
@@ -661,10 +691,14 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         if (look.haToken.isBlank() || !haOk) { host.askToken(); return }
         fun start() { moveTo = target; moveAt = SystemClock.uptimeMillis(); moveFail = false; lastMove = target; bind(); pollLater(1000) }
         if (target == 1) {
-            start()
-            Ha.call(look.haToken, "script", "turn_on", JSONObject().put("entity_id", Ha.LIVING)) { pollLater(1000) }
+            start(); lastPlace = 1
+            // 폰에서 소리가 나고 있으면 먼저 멈춘 뒤 마란츠로 보냄 (폰·마란츠 동시 재생되던 것 — build-38)
+            val wasLocal = ctlPlaying && ctlLocal
+            pausePhoneLocal()
+            postDelayed({ Ha.call(look.haToken, "script", "turn_on", JSONObject().put("entity_id", Ha.LIVING)) { pollLater(1000) } }, if (wasLocal) 700 else 0)
             return
         }
+        lastPlace = 0
         val sp = home?.get(Ha.SPOTIFY)
         val list = Ha.sources(sp)
         val name = phoneSpotifyName(list)
