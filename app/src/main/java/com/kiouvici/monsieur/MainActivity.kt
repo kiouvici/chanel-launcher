@@ -897,17 +897,51 @@ class MainActivity : ComponentActivity(), MediaHost {
         //  로그인 창에서 키보드가 뜨면 화면 재배치 → 곧바로 키보드가 내려가는 문제가 있었음)
         if (p == 0f && wasOpen) hideKeyboard()
         if (p > 0f && !wasOpen && badgeDirty) refreshBadges()
-        // MONSIEUR: 열 때 뚜껑이 6dp 들리며 −1.5° 기울었다 내려앉고, 리본은 양옆으로 풀림 (닫을 때 다시 묶임 200ms)
-        if (look.theme == Look.MONSIEUR && ::rim.isInitialized) {
-            if (p > 0f && !wasOpen && motionMode == 0) {
-                rim.pivotX = rim.width / 2f; rim.translationY = -dpf(6f); rim.rotation = -1.5f
-                rim.animate().translationY(0f).rotation(0f).setDuration(600).setInterpolator(SpringInterp(.35f, .6f, 600)).start()
-                tab.animate().scaleX(0f).setDuration(220).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
-            } else if (p == 0f && wasOpen) {
-                if (motionMode == 0) tab.animate().scaleX(1f).setDuration(200).start() else tab.scaleX = 1f
+        // MONSIEUR (성훈님: "하나도 모르겠다" → 크게): 서랍이 70% 올라오면 리본이 두 갈래로 풀려 양옆으로 날아가고,
+        // 다 올라오면 뚜껑이 12dp 들리며 −3° 기울었다 출렁이며 내려앉음. 닫기 시작하면 리본이 다시 묶임
+        if (look.theme == Look.MONSIEUR && ::rim.isInitialized && motionMode == 0) {
+            if (p >= .7f && !ribbonUntied && openP >= prevP) { ribbonUntied = true; untieRibbon() }
+            if (p >= 1f && prevP < 1f) {
+                rim.pivotX = rim.width / 2f; rim.translationY = -dpf(12f); rim.rotation = -3f
+                rim.animate().translationY(0f).rotation(0f).setDuration(800).setInterpolator(SpringInterp(.42f, .45f, 800)).start()
+            }
+            if (p < prevP && ribbonUntied && p < .98f) { ribbonUntied = false; tieRibbon() }
+        } else if (::tab.isInitialized && (p == 0f || motionMode != 0)) { ribbonUntied = false; tab.alpha = 1f; tab.scaleX = 1f; ribbonHalves?.forEach { box.removeView(it) }; ribbonHalves = null }
+        prevP = p
+        updateBars()
+    }
+
+    private var prevP = 0f
+    private var ribbonUntied = false
+    private var ribbonHalves: List<ImageView>? = null
+    /** 리본 풀기: 리본을 반으로 나눈 두 조각이 양옆으로 40dp씩 날아가며 ±18° 돌고 사라짐 */
+    private fun untieRibbon() {
+        ribbonHalves?.forEach { box.removeView(it) }
+        val lp = tab.layoutParams as FrameLayout.LayoutParams
+        val w = tab.width; val h = tab.height
+        if (w == 0) return
+        val halves = (0..1).map { i ->
+            ImageView(this).apply {
+                setImageDrawable(tab.drawable); scaleType = ImageView.ScaleType.FIT_XY; elevation = tab.elevation
+                clipBounds = android.graphics.Rect(if (i == 0) 0 else w / 2, 0, if (i == 0) w / 2 else w, h)
+                box.addView(this, FrameLayout.LayoutParams(w, h, Gravity.CENTER_HORIZONTAL).apply { topMargin = lp.topMargin })
             }
         }
-        updateBars()
+        ribbonHalves = halves; tab.alpha = 0f
+        halves.forEachIndexed { i, v ->
+            val dir = if (i == 0) -1f else 1f
+            v.pivotX = if (i == 0) w / 2f else w / 2f
+            v.animate().translationX(dir * dpf(40f)).translationY(dpf(6f)).rotation(dir * 18f).alpha(0f)
+                .setDuration(520).setInterpolator(android.view.animation.DecelerateInterpolator(1.6f)).start()
+        }
+    }
+    /** 리본 다시 묶기: 두 조각이 가운데로 모여 하나가 됨 (0.3초) */
+    private fun tieRibbon() {
+        val halves = ribbonHalves
+        if (halves == null) { tab.alpha = 1f; return }
+        halves.forEach { v -> v.animate().translationX(0f).translationY(0f).rotation(0f).alpha(1f).setDuration(300).setInterpolator(SpringInterp(.35f, .8f, 300))
+            .withEndAction { box.removeView(v); tab.alpha = 1f }.start() }
+        ribbonHalves = null
     }
 
     private var anim: ValueAnimator? = null
@@ -1419,15 +1453,23 @@ class MainActivity : ComponentActivity(), MediaHost {
         cardEmpty.visibility = if (list.isEmpty() && !f.startsWith("__")) View.VISIBLE else View.GONE
         val badges = Badges.shown()
         val src = if (f.startsWith("__")) null else f
-        val cw = dp(look.iconDp + floatArrayOf(16f, 26f, 38f)[look.gapMode])
-        // LIBRARY 펼친 책: 2열 + 가운데 접힘 + 2열
+        // 카드 안쪽 폭에 맞춰 칸 수·칸 폭을 정함 (아이콘을 키우면 오른쪽 줄이 잘리고 알림 점이 안 보이던 것 — 성훈님)
         val book = cardSkin == Look.LIBRARY
-        val cols = if (look.iconDp > 56f && !book) 3 else 4
+        val avail = root.width - dp(32f) - dp(56f)
+        val (cols0, cw) = gridFit(avail, 4)
+        val cols = if (book) 4 else cols0
         cardApps.columnCount = cols
         list.forEachIndexed { i, a -> cardApps.addView(appCell(a, a.pkg in badges, src), GridLayout.LayoutParams().apply {
             width = if (book) dp(look.iconDp + 18f) else cw
             if (book && i % 4 == 2) leftMargin = dp(36f)
         }) }
+    }
+
+    /** 폭 avail 안에 앱 칸을 몇 줄로 넣을지: 아이콘 + 간격(좁게 10 · 기본 22 · 넓게 36dp)이 들어가는 만큼, 최대 max칸, 최소 3칸. 칸 폭은 남김없이 나눔 */
+    internal fun gridFit(avail: Int, max: Int): Pair<Int, Int> {
+        val need = dp(look.iconDp + floatArrayOf(10f, 22f, 36f)[look.gapMode])
+        val cols = (avail / need.coerceAtLeast(1)).coerceIn(3, max)
+        return cols to avail / cols
     }
 
     /** 앱 한 칸: 누르면 실행 · 길게 누른 채 8dp 넘게 끌면 옮기기 · 길게 누르고 그냥 떼면 메뉴 (샤넬팀 7:0) */
@@ -1468,7 +1510,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         }
         if (!look.showAppNames && !row) t.visibility = View.GONE   // 아이콘만 보기
         if (row) cell.addView(t, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(12f) })
-        else cell.addView(t, LinearLayout.LayoutParams(if (compact) dp(64f) else maxOf(dp(72f), ic + dp(18f)), -2).apply { topMargin = dp(if (compact) 4f else 6f) })
+        else cell.addView(t, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(if (compact) 4f else 6f); leftMargin = dp(2f); rightMargin = dp(2f) })   // 이름은 칸 폭 안에서 (칸 밖으로 밀려 잘리던 것)
         if (repo.isHidden(a.pkg)) cell.alpha = .5f   // 숨긴 앱은 검색에서 흐리게
 
         if (pf != null && src == pf) {
