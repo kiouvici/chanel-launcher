@@ -684,11 +684,12 @@ class MainActivity : ComponentActivity(), MediaHost {
     private inner class Pager : FrameLayout(this@MainActivity) {
         private var x0 = 0f; private var y0 = 0f; private var dragging = false
         private var vertical = false; private var p0 = 0f; private var shadeDone = false
+        private var tDown = 0L; private var yDown = 0f
         private val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
         private var vt: android.view.VelocityTracker? = null
         override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
             when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { x0 = e.x; y0 = e.y; dragging = false; vertical = false; shadeDone = false; p0 = openP; pageAnim?.cancel()
+                MotionEvent.ACTION_DOWN -> { x0 = e.x; y0 = e.y; tDown = e.eventTime; yDown = e.y; dragging = false; vertical = false; shadeDone = false; p0 = openP; pageAnim?.cancel()
                     vt?.recycle(); vt = android.view.VelocityTracker.obtain(); vt?.addMovement(e) }
                 MotionEvent.ACTION_MOVE -> {
                     vt?.addMovement(e)
@@ -706,7 +707,7 @@ class MainActivity : ComponentActivity(), MediaHost {
             vt?.addMovement(e)
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    x0 = e.x; y0 = e.y; dragging = false; vertical = false; shadeDone = false; p0 = openP; pageAnim?.cancel()
+                    x0 = e.x; y0 = e.y; tDown = e.eventTime; yDown = e.y; dragging = false; vertical = false; shadeDone = false; p0 = openP; pageAnim?.cancel()
                     vt?.recycle(); vt = android.view.VelocityTracker.obtain(); vt?.addMovement(e)
                     return true
                 }
@@ -725,8 +726,10 @@ class MainActivity : ComponentActivity(), MediaHost {
                     if (vertical) {
                         vertical = false
                         vt?.computeCurrentVelocity(1000); val vy = vt?.yVelocity ?: 0f
-                        android.util.Log.d("MNS", "open up p=$openP vy=$vy")
-                        animateOpen(if (openP > .2f || vy < -dpf(500f)) 1f else 0f); return true
+                        // 빠르게 짧게 튕긴 것도 열림: 속도 추적이 0으로 나올 때가 있어(10번에 2번) 누른 시점부터의 거리·시간으로도 판단
+                        val up = yDown - e.y; val dt = (e.eventTime - tDown).coerceAtLeast(1)
+                        val flick = up > dpf(32f) && dt < 350
+                        animateOpen(if (openP > .15f || vy < -dpf(500f) || flick) 1f else 0f); return true
                     }
                     if (!dragging) { layoutPages(0f); return true }
                     val dx = e.x - x0
@@ -822,6 +825,7 @@ class MainActivity : ComponentActivity(), MediaHost {
     /** 상자 안 어디서든 아래로 크게 끌면 닫힘 (목록이 맨 위일 때) — 30% 또는 빠른 튕김 */
     private inner class BoxLayout : FrameLayout(this@MainActivity) {
         private var y0 = 0f; private var x0 = 0f; private var drag = false
+        private var tDown = 0L; private var yDown = 0f
         private val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
         private var vt: android.view.VelocityTracker? = null
         /** 아래로 끌어 닫기 시작할지: 위쪽 300dp에서 시작했거나 목록이 맨 위일 때, 세로로 slop(약 8dp) 넘게 */
@@ -835,7 +839,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         }
         override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
             when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { y0 = e.rawY; x0 = e.rawX; drag = false
+                MotionEvent.ACTION_DOWN -> { y0 = e.rawY; x0 = e.rawX; yDown = e.rawY; tDown = e.eventTime; drag = false
                     vt?.recycle(); vt = android.view.VelocityTracker.obtain(); vt?.addMovement(e) }
                 MotionEvent.ACTION_MOVE -> { vt?.addMovement(e); if (startDrag(e)) return true }
             }
@@ -845,7 +849,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         override fun onTouchEvent(e: MotionEvent): Boolean {
             // 빈 자리(맨 위 여백 등)를 잡고 끌 때는 가로채기가 불리지 않아 반응이 없던 것 — 여기서도 시작
             if (!drag) {
-                if (e.actionMasked == MotionEvent.ACTION_DOWN) { y0 = e.rawY; x0 = e.rawX; vt?.recycle(); vt = android.view.VelocityTracker.obtain(); vt?.addMovement(e) }
+                if (e.actionMasked == MotionEvent.ACTION_DOWN) { y0 = e.rawY; x0 = e.rawX; yDown = e.rawY; tDown = e.eventTime; vt?.recycle(); vt = android.view.VelocityTracker.obtain(); vt?.addMovement(e) }
                 if (e.actionMasked == MotionEvent.ACTION_MOVE) { vt?.addMovement(e); if (startDrag(e)) return true }
                 super.onTouchEvent(e); return true
             }
@@ -856,7 +860,8 @@ class MainActivity : ComponentActivity(), MediaHost {
                     drag = false
                     vt?.computeCurrentVelocity(1000); val vy = vt?.yVelocity ?: 0f
                     // 15%만 끌어 내리거나 살짝 튕기면(600dp/s) 닫힘 — 예전 30%·1000dp/s는 너무 많이 끌어야 했음
-                    animateOpen(if (openP < .85f || vy > dpf(600f)) 0f else 1f)
+                    val down = e.rawY - yDown; val dt = (e.eventTime - tDown).coerceAtLeast(1)
+                    animateOpen(if (openP < .85f || vy > dpf(600f) || (down > dpf(32f) && dt < 350)) 0f else 1f)
                 }
             }
             return true
