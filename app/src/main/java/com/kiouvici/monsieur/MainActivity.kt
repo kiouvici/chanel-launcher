@@ -339,7 +339,8 @@ class MainActivity : ComponentActivity(), MediaHost {
         }
         override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) {}
     }
-    private fun tilt(on: Boolean) {
+    /** (쓰지 않음 — 성훈님 결정으로 시차 효과 삭제) */
+    @Suppress("unused") private fun tilt(on: Boolean) {
         val sm = getSystemService(SENSOR_SERVICE) as android.hardware.SensorManager
         val want = on && motionMode == 0 && themeCover.wantsParallax && !(getSystemService(POWER_SERVICE) as android.os.PowerManager).isPowerSaveMode
         if (want == tiltOn) return
@@ -394,7 +395,6 @@ class MainActivity : ComponentActivity(), MediaHost {
         // 알림 점: 다른 앱에서 돌아오면 사용 기록을 읽고 폴더 점·앱 점을 함께 다시 켬 (build-38)
         Badges.syncUsage(this); refreshBadges()
         if (fromApp) { fromApp = false; root.post { homeReturnFx() } }
-        tilt(true)
         // 권한: 이어서 켜는 중이면 다음 화면, 다 끝나면 창으로 결과 보여 줌 · 처음 한 번은 빠진 게 있으면 창을 띄움
         if (permChain) { root.postDelayed({ if (!openNextPerm()) { permChain = false; permSheet() } }, 350) }
         else if (!getSharedPreferences("monsieur", MODE_PRIVATE).getBoolean("permAsked", false) && permNeed() > 0) {
@@ -444,7 +444,7 @@ class MainActivity : ComponentActivity(), MediaHost {
 
     override fun onPause() {
         super.onPause()
-        TouchLog.add("onPause"); tilt(false)
+        TouchLog.add("onPause")
         media.setShown(false)
         CookieManager.getInstance().flush()
     }
@@ -1683,9 +1683,9 @@ class MainActivity : ComponentActivity(), MediaHost {
                 // 누른 자리에서 피어남 (85%→100%, 스프링 .35 · .80) + 뒤 어둡게 30% · 흐림 6dp
                 m.pivotX = (ax + anchor.width / 2f - x).coerceIn(0f, mw.toFloat()); m.pivotY = if (y < ay) mh.toFloat() else 0f
                 m.alpha = 0f; m.scaleX = .85f; m.scaleY = .85f
-                m.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(520).setInterpolator(SpringInterp(.35f, .8f, 520)).start()
+                m.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(760).setInterpolator(SpringInterp(.5f, .8f, 760)).start()   // 성훈님: 더 천천히
                 layer.setBackgroundColor(Color.argb(77, 0, 0, 0)); layer.background.alpha = 0
-                ValueAnimator.ofInt(0, 255).apply { duration = 200; addUpdateListener { layer.background?.alpha = it.animatedValue as Int; blurBehind((it.animatedValue as Int) / 255f) }; start() }
+                ValueAnimator.ofInt(0, 255).apply { duration = 320; addUpdateListener { layer.background?.alpha = it.animatedValue as Int; blurBehind((it.animatedValue as Int) / 255f) }; start() }
             }
             1 -> { m.alpha = 0f; m.animate().alpha(1f).setDuration(150).start() }
         }

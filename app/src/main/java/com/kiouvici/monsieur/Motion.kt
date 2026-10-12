@@ -260,14 +260,14 @@ internal fun appCellsIn(v: View): List<View> {
     fun walk(x: View) { if (x in appCellSet) { out += x; return }; if (x is ViewGroup) for (i in 0 until x.childCount) walk(x.getChildAt(i)) }
     walk(v); return out
 }
-/** 앞에서부터 12개는 24ms 간격, 나머지는 한꺼번에 — 아래 12dp에서 96%→100%, 스프링 .40 · .82 */
+/** 앞에서부터 12개는 45ms 간격, 나머지는 한꺼번에 — 아래 18dp에서 94%→100%, 스프링 .55 · .82 (성훈님: 더 천천히) */
 internal fun MainActivity.stagger(cells: List<View>) {
     if (motionMode != 0) { cells.forEach { it.alpha = 1f }; return }
-    val dy = 12 * resources.displayMetrics.density
+    val dy = 18 * resources.displayMetrics.density
     cells.forEachIndexed { i, c ->
-        c.alpha = 0f; c.translationY = dy; c.scaleX = .96f; c.scaleY = .96f
-        c.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f).setStartDelay(minOf(i, 12) * 24L).setDuration(600)
-            .setInterpolator(SpringInterp(.4f, .82f, 600)).start()
+        c.alpha = 0f; c.translationY = dy; c.scaleX = .94f; c.scaleY = .94f
+        c.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f).setStartDelay(minOf(i, 12) * 45L).setDuration(850)
+            .setInterpolator(SpringInterp(.55f, .82f, 850)).start()
     }
 }
 private var popsAt = 0L; private var popsN = 0
