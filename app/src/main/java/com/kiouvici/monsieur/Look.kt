@@ -19,6 +19,15 @@ class Look(ctx: Context) {
     }
 
     private val p = ctx.getSharedPreferences("monsieur", Context.MODE_PRIVATE)
+    init { Dk.lib = libDark; Dk.voy = voyDark }
+
+    /** LIBRARY · VOYAGE 바탕: true 블랙(기본) · false 밝게 */
+    var libDark: Boolean
+        get() = p.getBoolean("libDark", true)
+        set(v) { p.edit().putBoolean("libDark", v).apply(); Dk.lib = v }
+    var voyDark: Boolean
+        get() = p.getBoolean("voyDark", true)
+        set(v) { p.edit().putBoolean("voyDark", v).apply(); Dk.voy = v }
 
     var theme: Int
         get() = p.getInt("theme", MONSIEUR).coerceIn(0, 4)

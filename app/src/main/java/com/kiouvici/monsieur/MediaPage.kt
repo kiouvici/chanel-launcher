@@ -837,64 +837,65 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
 
     // ═════════ ② THE LIBRARY — LE PROGRAMME ═════════
     private fun buildLibrary(L: Lay) {
-        lightBg = true
-        background = android.graphics.drawable.LayerDrawable(arrayOf(android.graphics.drawable.ColorDrawable(0xFFF3EEE4.toInt()), Style.tile(context, Style.PAPER, 300f)))
-        libHead = L.t("NOW PLAYING", Style.jost(context, 400), 10f, Style.ink(.55f), .35f).also { L.add(it, 36f, 70f) }
-        whenLine = L.t("", Fonts.serifI(context), 17f, Style.ink(.7f)).also { L.add(it, 36f, 92f) }
+        lightBg = !Dk.lib
+        background = Dk.libBg(context)
+        libHead = L.t("NOW PLAYING", Style.jost(context, 400), 10f, Dk.li(.55f), .35f).also { L.add(it, 36f, 70f) }
+        whenLine = L.t("", Fonts.serifI(context), 17f, Dk.li(.7f)).also { L.add(it, 36f, 92f) }
         // 사진 모서리로 붙인 앨범아트
         val plate = FrameLayout(context).apply { setBackgroundColor(Color.WHITE); elevation = L.zf(3f); clipChildren = false }
         L.add(plate, 86f, 118f, 240f, 240f)
         art = ArtView(context).also { plate.addView(it, LayoutParams(-1, -1).apply { val m = L.z(10f); setMargins(m, m, m, m) }) }
         val corner = Style.img(context, "th/photo_corner.webp")
         listOf(Triple(-1f, -1f, -45f), Triple(1f, -1f, 45f), Triple(-1f, 1f, -135f), Triple(1f, 1f, 135f)).forEach { (sx, sy, rot) ->
-            val c = View(context).apply { background = Pic(corner, Pic.CONTAIN); rotation = rot; elevation = L.zf(4f) }
+            val c = View(context).apply { background = Pic(corner, Pic.CONTAIN); rotation = rot; elevation = L.zf(4f)
+                if (Dk.lib) setLayerType(View.LAYER_TYPE_HARDWARE, Paint().apply { colorFilter = android.graphics.PorterDuffColorFilter(Dk.LIB_CORNER, android.graphics.PorterDuff.Mode.SRC_IN) }) }
             val cx = if (sx < 0) 86f - 9f else 86f + 240f - 44f + 9f
             val cy = if (sy < 0) 118f - 1f else 118f + 240f - 28f + 1f
             L.add(c, cx, cy, 44f, 28f); nowViews += c
         }
-        title = L.t("", Fonts.serifI(context), 14f, Style.ink(.65f), 0f, Gravity.CENTER).also { L.addLR(it, 36f, 36f, 370f) }
-        sentence = L.t("", Fonts.serif(context), 25f, Style.INK, 0f, Gravity.CENTER).apply { setLineSpacing(L.zf(4f), 1f); maxLines = 3; ellipsize = android.text.TextUtils.TruncateAt.END }
+        title = L.t("", Fonts.serifI(context), 14f, Dk.li(.65f), 0f, Gravity.CENTER).also { L.addLR(it, 36f, 36f, 370f) }
+        sentence = L.t("", Fonts.serif(context), 25f, Dk.li(), 0f, Gravity.CENTER).apply { setLineSpacing(L.zf(4f), 1f); maxLines = 3; ellipsize = android.text.TextUtils.TruncateAt.END }
         L.addLR(sentence!!, 36f, 36f, 396f)
-        val pv = LineProg(context, Style.ink(.3f), Style.INK, L.zf(1f), L.zf(2f), marker = Style.img(context, "th/bookmark.webp"), markerW = L.zf(14f), markerH = L.zf(34f))
+        val pv = LineProg(context, Dk.li(.3f), Dk.li(), L.zf(1f), L.zf(2f), marker = Style.img(context, "th/bookmark.webp"), markerW = L.zf(14f), markerH = L.zf(34f))
         L.addLR(pv, 29f, 29f, 476f, 38f); progView = pv; prog = { pv.p = it }
-        t1 = L.t("", Style.jost(context, 400), 11f, Style.ink(.65f), .1f, Gravity.END).also { L.addLR(it, 36f, 36f, 489f) }
+        t1 = L.t("", Style.jost(context, 400), 11f, Dk.li(.65f), .1f, Gravity.END).also { L.addLR(it, 36f, 36f, 489f) }
         val deb = Style.img(context, "th/deboss.webp")
         fun db(kind: Int, size: Float, icon: Float) = FrameLayout(context).apply {
-            background = Pic(deb, Pic.CONTAIN)
-            val g = Glyph(context, kind, Style.INK, if (size > 70f) 2.2f else 1.6f); addView(g, LayoutParams(-1, -1).apply { val m = L.z((size - icon) / 2); setMargins(m, m, m, m) })
+            background = if (Dk.lib) shape(Dk.LIB_PAGE, tint(.35f, Dk.LIB_TX), L.z(.75f).coerceAtLeast(1), oval = true) else Pic(deb, Pic.CONTAIN)
+            val g = Glyph(context, kind, Dk.li(), if (size > 70f) 2.2f else 1.6f); addView(g, LayoutParams(-1, -1).apply { val m = L.z((size - icon) / 2); setMargins(m, m, m, m) })
             if (kind == 2) play = g
         }
         val prev = db(0, 52f, 16f); val pl = db(2, 72f, 20f); val next = db(3, 52f, 16f)
         L.add(tap(prev) { doPrev() }, 92f, 536f, 52f, 52f); L.add(tap(pl) { doPlay() }, 170f, 526f, 72f, 72f); L.add(tap(next) { doNext() }, 268f, 536f, 52f, 52f)
         volPrefix = android.text.SpannableStringBuilder().append("Volume", CustomFont(Fonts.serifI(context), 1.4f), 0).append("  ·  ")
-        volRow(L, 36f, 376f, 630f, VolBar.RULER, Style.INK, Style.ink(.3f), Style.ink(.65f), Style.ink(.65f), 9f)
-        out = L.t("", Fonts.serif(context), 16f, Style.ink(.75f), 0f, Gravity.CENTER).apply { maxLines = 1 }.also { L.addLR(tap(it) { doOutput() }, 36f, 36f, 670f, 44f) }
+        volRow(L, 36f, 376f, 630f, VolBar.RULER, Dk.li(), Dk.li(.3f), Dk.li(.65f), Dk.li(.65f), 9f)
+        out = L.t("", Fonts.serif(context), 16f, Dk.li(.75f), 0f, Gravity.CENTER).apply { maxLines = 1 }.also { L.addLR(tap(it) { doOutput() }, 36f, 36f, 670f, 44f) }
         nowViews += listOf(plate, title!!, sentence!!, pv, t1!!, prev, pl, next, out!!, whenLine!!)
         // 집: 점선 줄
         val hs = FrameLayout(context); L.addLR(hs, 36f, 36f, 722f, 120f)
         val H = Lay(context, hs, L.w - L.x(72f), L.z(120f), 340f, 120f)
-        H.add(H.t("IN THE HOUSE", Style.jost(context, 400), 10f, Style.ink(.55f), .3f), 0f, 0f)
+        H.add(H.t("IN THE HOUSE", Style.jost(context, 400), 10f, Dk.li(.55f), .3f), 0f, 0f)
         fun lrow(top: Float, label: String, btn: String, go: () -> Unit): Pair<TextView, TextView> {
             val r = FrameLayout(context); H.addLR(r, 0f, 0f, top, 46f)
-            r.addView(View(context).apply { setBackgroundColor(Style.ink(.15f)) }, LayoutParams(-1, 1))
-            val t = H.t(label, Fonts.serif(context), 15f, Style.INK).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+            r.addView(View(context).apply { setBackgroundColor(Dk.li(.15f)) }, LayoutParams(-1, 1))
+            val t = H.t(label, Fonts.serif(context), 15f, Dk.li()).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
             r.addView(t, LayoutParams(H.z(220f), -2, Gravity.CENTER_VERTICAL))
-            r.addView(DotLeader(context, Style.ink(.35f), H.zf(1f)), LayoutParams(-1, H.z(4f), Gravity.CENTER_VERTICAL).apply { leftMargin = H.z(226f); rightMargin = H.z(72f) })
-            val b = pad(H.t(btn, Style.kr(context, 400), 12f, Style.INK), 10f).apply { background = shape(stroke = Style.ink(.55f), strokePx = H.z(1f)) }
+            r.addView(DotLeader(context, Dk.li(.35f), H.zf(1f)), LayoutParams(-1, H.z(4f), Gravity.CENTER_VERTICAL).apply { leftMargin = H.z(226f); rightMargin = H.z(72f) })
+            val b = pad(H.t(btn, Style.kr(context, 400), 12f, Dk.li()), 10f).apply { background = shape(stroke = Dk.li(.55f), strokePx = H.z(1f)) }
             r.addView(tap(b, go), LayoutParams(H.z(64f), H.z(44f), Gravity.END or Gravity.CENTER_VERTICAL))
             houseViews += r; return t to b
         }
         lrow(24f, "Apple TV", "재생") { doAtv() }.let { atvName = it.first; atvBtn = it.second }
         lrow(70f, "Marantz", "켜기") { doMz() }.let { mzName = it.first; mzState = null; mzBtn = it.second }
         val q = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
-        quietTitle = H.t("", Fonts.serif(context), 22f, Style.INK, 0f, Gravity.CENTER); q.addView(quietTitle!!, LinearLayout.LayoutParams(-1, -2))
-        val qb = hRow(); quietButtons(qb) { pad(H.t(it, Style.kr(context, 400), 12.5f, Style.INK), 14f).apply { background = shape(stroke = Style.ink(.6f), strokePx = H.z(1f)) } }
+        quietTitle = H.t("", Fonts.serif(context), 22f, Dk.li(), 0f, Gravity.CENTER); q.addView(quietTitle!!, LinearLayout.LayoutParams(-1, -2))
+        val qb = hRow(); quietButtons(qb) { pad(H.t(it, Style.kr(context, 400), 12.5f, Dk.li()), 14f).apply { background = shape(stroke = Dk.li(.6f), strokePx = H.z(1f)) } }
         q.addView(qb, LinearLayout.LayoutParams(-2, H.z(44f)).apply { topMargin = H.z(14f) })
         H.addLR(q, 0f, 0f, 30f); quietBox = q
         val e = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
-        e.addView(L.t("Nothing on the programme.", Fonts.serif(context), 32f, Style.INK, 0f, Gravity.CENTER))
-        e.addView(L.t("음악을 틀면 이 쪽에 적힙니다.", Style.kr(context, 300), 13f, Style.ink(.7f), 0f, Gravity.CENTER).also { emptyMsg = it; emptyMsgOk = "음악을 틀면 이 쪽에 적힙니다." }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(10f) })
-        val eb = hRow(); emptyButtons(eb) { pad(L.t(it, Style.kr(context, 400), 12.5f, Style.INK), 16f).apply { background = shape(stroke = Style.ink(.6f), strokePx = L.z(1f)) } }
+        e.addView(L.t("Nothing on the programme.", Fonts.serif(context), 32f, Dk.li(), 0f, Gravity.CENTER))
+        e.addView(L.t("음악을 틀면 이 쪽에 적힙니다.", Style.kr(context, 300), 13f, Dk.li(.7f), 0f, Gravity.CENTER).also { emptyMsg = it; emptyMsgOk = "음악을 틀면 이 쪽에 적힙니다." }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = L.z(10f) })
+        val eb = hRow(); emptyButtons(eb) { pad(L.t(it, Style.kr(context, 400), 12.5f, Dk.li()), 16f).apply { background = shape(stroke = Dk.li(.6f), strokePx = L.z(1f)) } }
         e.addView(eb, LinearLayout.LayoutParams(-2, L.z(44f)).apply { topMargin = L.z(18f) })
         L.addLR(e, 28f, 28f, 220f); emptyBox = e
         // 접힌 귀퉁이
@@ -984,11 +985,13 @@ class MediaPage(ctx: Context, private val host: MediaHost) : FrameLayout(ctx) {
         val sr = soundLine(L, 40f, 372f, 682f, 14f, tint(.85f, V_IVORY), V_IVORY, "바꾸기 ›", tint(.35f, V_IVORY))
         nowViews += listOf(sr, title!!, sub!!, pv, t0!!, t1!!, prev, pl, next)
         fun vrow(top: Float, isAtv: Boolean) {
-            val r = FrameLayout(context).apply { setBackgroundColor(0xFFDCD5C6.toInt()) }; L.addLR(r, 40f, 40f, top, 44f)
+            // 블랙에서도 아이보리 상자 + 남색 글자·단추 (서랍 라벨·카드와 한 벌 — 성훈님 선택)
+            val dv = false
+            val r = FrameLayout(context).apply { setBackgroundColor(if (dv) Dk.VOY_NAVY else 0xFFDCD5C6.toInt()) }; L.addLR(r, 40f, 40f, top, 44f)
             val R1 = Lay(context, r, L.w - L.x(80f), L.z(44f), 332f, 44f)
-            val nm = R1.t(if (isAtv) "Apple TV" else "Marantz", Fonts.serif(context), 15f, V_INK, .02f).also { R1.add(it, 16f, 12f) }
-            val st = R1.t("", Style.kr(context, 300), 12f, tint(.7f, V_INK)).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { R1.add(it, 116f, 14f, 136f) }
-            val b = R1.t("켜기", Style.kr(context, 400), 12f, V_IVORY, 0f, Gravity.CENTER).apply { setBackgroundColor(V_INK) }
+            val nm = R1.t(if (isAtv) "Apple TV" else "Marantz", Fonts.serif(context), 15f, if (dv) V_IVORY else V_INK, .02f).also { R1.add(it, 16f, 12f) }
+            val st = R1.t("", Style.kr(context, 300), 12f, tint(.7f, if (dv) V_IVORY else V_INK)).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }.also { R1.add(it, 116f, 14f, 136f) }
+            val b = R1.t("켜기", Style.kr(context, 400), 12f, if (dv) Dk.VOY_NAVY else V_IVORY, 0f, Gravity.CENTER).apply { setBackgroundColor(if (dv) V_IVORY else V_INK) }
             R1.add(tap(b) { if (isAtv) doAtv() else doMz() }, 260f, 0f, 72f, 44f)
             if (isAtv) { atvName = nm; atvSub = st; atvBtn = b } else { mzName = nm; mzState = st; mzBtn = b }
             houseViews += r
@@ -1182,8 +1185,8 @@ class EarView(ctx: Context) : View(ctx) {
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     override fun onDraw(c: Canvas) {
         val w = width.toFloat(); val h = height.toFloat()
-        p.color = 0x1F000000; val sh = android.graphics.Path().apply { moveTo(w, 0f); lineTo(0f, h); lineTo(w, h); close() }
+        p.color = if (Dk.lib) 0x99000000.toInt() else 0x1F000000; val sh = android.graphics.Path().apply { moveTo(w, 0f); lineTo(0f, h); lineTo(w, h); close() }
         c.save(); c.translate(-3f, -3f); c.drawPath(sh, p); c.restore()
-        p.color = 0xFFE3DCCF.toInt(); c.drawPath(sh, p)
+        p.color = if (Dk.lib) 0xFF2A2620.toInt() else 0xFFE3DCCF.toInt(); c.drawPath(sh, p)
     }
 }

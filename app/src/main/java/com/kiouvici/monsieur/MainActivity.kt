@@ -635,7 +635,7 @@ class MainActivity : ComponentActivity(), MediaHost {
             v.visibility = if (v is WebView || near) View.VISIBLE else View.INVISIBLE
         }
         // 페이지 점: LIBRARY 종이 위(표지·미디어)에서는 먹색 — 아이보리 점이 종이에 묻히던 것
-        val inkDots = look.theme == Look.LIBRARY && cur <= 1
+        val inkDots = look.theme == Look.LIBRARY && !Dk.lib && cur <= 1
         for (i in 0 until indicator.childCount) indicator.getChildAt(i).apply {
             setBackgroundColor(if (inkDots) (if (i == cur) 0xFF2B2520.toInt() else 0xFF8A7E6E.toInt()) else Style.IVORY)
             alpha = if (inkDots || i == cur) 1f else .3f
@@ -653,7 +653,7 @@ class MainActivity : ComponentActivity(), MediaHost {
     /** 밝은 바탕(LIBRARY 표지·미디어)에서는 상태바 글자를 검정으로 */
     private var barsLight: Boolean? = null
     internal fun updateBars() {
-        val light = if (openP > .5f) look.theme == Look.LIBRARY
+        val light = if (openP > .5f) look.theme == Look.LIBRARY && !Dk.lib
             else themeOpen == null && ((cur == 0 && themeCover.isLight) || (cur == 1 && media.isLight))
         if (light == barsLight) return
         barsLight = light
@@ -994,7 +994,7 @@ class MainActivity : ComponentActivity(), MediaHost {
     internal fun stageSig(): String {
         if (!::stage.isInitialized) return ""
         val f = repo.folders()
-        return listOf(look.theme, look.libOrder, look.folderScale, repo.iconMode, stage.width, stage.height,
+        return listOf(look.theme, Dk.lib, Dk.voy, look.libOrder, look.folderScale, repo.iconMode, stage.width, stage.height,
             f.joinToString(",") { it + ":" + repo.nameOf(it) + ":" + repo.appsIn(it).size }, repo.favorites().sorted().joinToString(","),
             repo.unassigned().size, search.text?.toString() ?: "").joinToString("|")
     }
@@ -1638,9 +1638,11 @@ class MainActivity : ComponentActivity(), MediaHost {
             // 테마 전용 메뉴는 그 테마를 쓰는 동안에만 (성훈님 결정)
             when (look.theme) {
                 Look.CAPTION -> { row("표지 사진 · THE CAPTION", if (look.photos.isEmpty()) "기본" else "${look.photos.size}장", true) { pickPhotos() }; line() }
-                Look.TRAIN -> { row("여행 사진 · THE VOYAGE", if (look.trips.isEmpty()) "기본" else "${look.trips.size}장", true) { tripEditor() }; line() }
+                Look.TRAIN -> { row("여행 사진 · THE VOYAGE", if (look.trips.isEmpty()) "기본" else "${look.trips.size}장", true) { tripEditor() }; line()
+                    row("바탕 · THE VOYAGE", if (look.voyDark) "블랙" else "밝게", true) { look.voyDark = !look.voyDark; applyTheme(look.theme) }; line() }
                 Look.HOUR -> { row("시계 문자판 · THE HOUR", if (look.hourDial == 0) "NOIR" else "IVOIRE", true) { choiceSheet(0) }; line() }
-                Look.LIBRARY -> { row("원고지 순서 · THE LIBRARY", if (look.libOrder == 0) "세로" else "가로", true) { choiceSheet(1) }; line() }
+                Look.LIBRARY -> { row("원고지 순서 · THE LIBRARY", if (look.libOrder == 0) "세로" else "가로", true) { choiceSheet(1) }; line()
+                    row("바탕 · THE LIBRARY", if (look.libDark) "블랙" else "밝게", true) { look.libDark = !look.libDark; applyTheme(look.theme) }; line() }
             }
             row("HA 연결 · 미디어", if (look.haToken.isBlank()) "연결 안 됨" else "토큰 있음", true) { tokenSheet() }; line()
             FineVol.init(getSystemService(AUDIO_SERVICE) as android.media.AudioManager)
