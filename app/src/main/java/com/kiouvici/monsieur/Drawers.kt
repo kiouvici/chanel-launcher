@@ -162,7 +162,7 @@ internal fun MainActivity.buildStage() {
             }
             ms.measureFor(W, H)
             val needH = ((ms.rows * 44f + (if (Dk.lib) 26f else 18f)) * ms.u).roundToInt()
-            stageIn.addView(ms, FrameLayout.LayoutParams(W, maxOf(H, needH)))
+            stageIn.addView(ms, FrameLayout.LayoutParams(W, if (Dk.lib) H else maxOf(H, needH)))
             var waiting = 0
             folders.forEachIndexed { i, id ->
                 val (r, side) = ms.slot(i)
@@ -191,7 +191,7 @@ internal fun MainActivity.buildStage() {
                 1 -> "One of them is waiting."
                 else -> "${cap(Words.num(waiting))} of them are waiting."
             }
-            contentH = maxOf(H, needH)
+            contentH = if (Dk.lib) H else maxOf(H, needH)
         }
         Look.HOUR -> {
             // H3: 세라믹 판 + 창 3열 (이름 13sp, 6자 이상 12sp)
