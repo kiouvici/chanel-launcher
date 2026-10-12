@@ -725,6 +725,7 @@ class MainActivity : ComponentActivity(), MediaHost {
                     if (vertical) {
                         vertical = false
                         vt?.computeCurrentVelocity(1000); val vy = vt?.yVelocity ?: 0f
+                        android.util.Log.d("MNS", "open up p=$openP vy=$vy")
                         animateOpen(if (openP > .2f || vy < -dpf(500f)) 1f else 0f); return true
                     }
                     if (!dragging) { layoutPages(0f); return true }

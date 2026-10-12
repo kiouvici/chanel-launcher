@@ -47,6 +47,12 @@ adb logcat -d -s AndroidRuntime:E MNS:D > shots/crash.txt || true
 adb shell am start -n $A --ei theme 0 --ei page 0; sleep 6
 adb shell input swipe 540 1900 540 1650 150; sleep 2
 adb exec-out screencap -p > shots/g1_open_short.png
+adb shell input keyevent KEYCODE_HOME; sleep 2
+adb shell input swipe 540 1900 540 1650 150; sleep 2
+adb exec-out screencap -p > shots/g1b_open_short.png
+adb shell input keyevent KEYCODE_HOME; sleep 2
+adb shell input swipe 540 1900 540 1300 300; sleep 2
+adb exec-out screencap -p > shots/g1c_open_long.png
 adb shell input swipe 540 330 540 1000 200; sleep 2
 adb exec-out screencap -p > shots/g2_close_top.png
 adb shell input swipe 250 900 250 1500 200; sleep 2
