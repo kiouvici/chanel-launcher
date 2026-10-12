@@ -181,7 +181,7 @@ internal fun MainActivity.buildStage() {
                 val len = names[i].take(7).length
                 val cx = if (len < 7) ms.cellLeft(side) + (25 * len + 12.5f) * ms.u else if (side == 0) ms.ox + 190f * ms.u else ms.ox + 383f * ms.u
                 val sz = (10f * ms.u).roundToInt()
-                val d = View(this).apply { background = shape(if (Dk.inkPage) Dk.LIB_DOT else M_RED, oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
+                val d = View(this).apply { background = shape(dotC(if (Dk.inkPage) Dk.LIB_DOT else M_RED), oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
                 stageIn.addView(d, FrameLayout.LayoutParams(sz, sz).apply { leftMargin = (cx - sz / 2f).roundToInt(); topMargin = (ms.charTop(r) + 12.5f * ms.u - sz / 2f).roundToInt() })
                 gridDots[id] = d
             }
@@ -213,7 +213,8 @@ internal fun MainActivity.buildStage() {
             val rh = ((H / rows.toFloat()).coerceAtMost(dpf(44f) * k)).roundToInt().coerceAtLeast(dp(36f))
             val cw = (W - dp(12f)) / 2
             folders.forEachIndexed { i, id ->
-                val c = i / rows; val r = i % rows
+                // 세로: 왼쪽 열을 위→아래 먼저 · 가로: 줄마다 왼쪽→오른쪽 (설정 — 성훈님)
+                val c = if (look.trainOrder == 0) i / rows else i % 2; val r = if (look.trainOrder == 0) i % rows else i / 2
                 val v = labelView(id, shortName(repo.nameOf(id)), id in favs, repo.appsIn(id).any { it.pkg in badges })
                 dimIfNot(v, id)
                 stageIn.addView(v, FrameLayout.LayoutParams(cw, rh - dp(4f)).apply { leftMargin = c * (cw + dp(12f)); topMargin = r * rh })
@@ -259,7 +260,7 @@ internal fun MainActivity.buildStage() {
 
 /** 폴더 보기 하나에 공통 동작: 누르면 열기 · 길게 누르면 메뉴 · 앱을 끌어 놓으면 옮기기 */
 internal fun MainActivity.bindFolder(v: View, id: String, onHover: ((Boolean) -> Unit)? = null) {
-    v.setOnClickListener { showFolder(id) }
+    v.setOnClickListener { lastTap = android.graphics.Rect().also { r -> val loc = IntArray(2); v.getLocationInWindow(loc); r.set(loc[0], loc[1], loc[0] + v.width, loc[1] + v.height) }; showFolder(id) }
     v.setOnLongClickListener { folderMenu(v, id); true }
     v.setOnDragListener { _, e ->
         when (e.action) {
@@ -281,6 +282,8 @@ internal fun MainActivity.bindFolder(v: View, id: String, onHover: ((Boolean) ->
 }
 
 private fun MainActivity.nameSp(base: Float) = base + look.nameDelta
+/** 알림 점 색 (고른 색이 없으면 테마 색) */
+internal fun MainActivity.dotC(base: Int) = if (look.dotColor != 0) look.dotColor else base
 
 /** ③ HOUR 창 하나: 아이콘 22 + 이름 (자주 여는 폴더는 베이지 골드) */
 private fun MainActivity.windowView(id: String, nm: String, fav: Boolean, badge: Boolean): View {
@@ -288,9 +291,9 @@ private fun MainActivity.windowView(id: String, nm: String, fav: Boolean, badge:
     repo.coverApps(id).firstOrNull()?.let { a ->
         v.addView(ImageView(this).apply { setImageDrawable(iconOf(a)); styleIcon(this) }, FrameLayout.LayoutParams(dp(22f), dp(22f), Gravity.CENTER_VERTICAL).apply { leftMargin = dp(9f) })
     }
-    val tv = txt(nm, Style.kr(this, 400), nameSp(if (nm.length < 6) 13f else 12f), look.nameColorOn(false, if (fav) H_GOLD else tint(.92f, H_IVORY)), 0f, Gravity.CENTER_VERTICAL).apply { maxLines = 1 }
+    val tv = txt(nm, nameFace(400), nameSp(if (nm.length < 6) 13f else 12f), look.nameColorOn(false, if (fav) H_GOLD else tint(.92f, H_IVORY)), 0f, Gravity.CENTER_VERTICAL).apply { maxLines = 1 }
     v.addView(tv, FrameLayout.LayoutParams(-1, -1).apply { leftMargin = dp(38f); rightMargin = dp(6f) })
-    val d = View(this).apply { background = shape(Style.ROUGE, oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
+    val d = View(this).apply { background = shape(dotC(Style.ROUGE), oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
     v.addView(d, FrameLayout.LayoutParams(dp(6f), dp(6f), Gravity.END or Gravity.TOP).apply { topMargin = dp(6f); rightMargin = dp(6f) })
     gridDots[id] = d
     bindFolder(v, id) { on -> tv.setTextColor(if (on) H_GOLD else look.nameColorOn(false, if (fav) H_GOLD else tint(.92f, H_IVORY))) }
@@ -303,9 +306,9 @@ private fun MainActivity.labelView(id: String, nm: String, fav: Boolean, badge: 
     repo.coverApps(id).firstOrNull()?.let { a ->
         v.addView(ImageView(this).apply { setImageDrawable(iconOf(a)); styleIcon(this) }, FrameLayout.LayoutParams(dp(18f), dp(18f), Gravity.CENTER_VERTICAL).apply { leftMargin = dp(16f) })
     }
-    val tv = txt(nm, Style.kr(this, if (fav) 600 else 500), nameSp(14f), look.nameColorOn(true, V_INK), 0f, Gravity.CENTER_VERTICAL).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+    val tv = txt(nm, nameFace(if (fav) 600 else 500), nameSp(14f), look.nameColorOn(true, V_INK), 0f, Gravity.CENTER_VERTICAL).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
     v.addView(tv, FrameLayout.LayoutParams(-1, -1).apply { leftMargin = dp(40f); rightMargin = dp(22f) })
-    val d = View(this).apply { background = shape(Style.ROUGE, oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
+    val d = View(this).apply { background = shape(dotC(Style.ROUGE), oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
     v.addView(d, FrameLayout.LayoutParams(dp(6f), dp(6f), Gravity.END or Gravity.CENTER_VERTICAL).apply { rightMargin = dp(14f) })
     gridDots[id] = d
     bindFolder(v, id) { on -> v.alpha = if (on) .8f else 1f }
@@ -316,7 +319,7 @@ private fun MainActivity.labelView(id: String, nm: String, fav: Boolean, badge: 
 private fun MainActivity.bookView(i: Int, stack: Int, id: String, nm: String, fav: Boolean, badge: Boolean, colW: Int, h: Int): View {
     val bi = (i * 3 + stack) % 4
     val dark = bi == 0 || bi == 2
-    val tv = txt(nm, Style.kr(this, if (dark) 400 else 600), nameSp(13f),
+    val tv = txt(nm, nameFace(if (dark) 400 else 600), nameSp(13f),
         look.nameColorOn(!dark, if (dark) Style.ivory(.95f) else if (bi == 3) 0xFF1A0F08.toInt() else Style.ink(.88f)), -.01f, Gravity.CENTER).apply { maxLines = 1 }
     var fs = nameSp(13f)
     val maxW = colW - dp(4f)
@@ -335,7 +338,7 @@ private fun MainActivity.bookView(i: Int, stack: Int, id: String, nm: String, fa
     v.addView(txt("%02d".format(i + 1), Style.jost(this, 400), 9f, if (dark) GOLD_LT else if (bi == 3) 0xFF3A2412.toInt() else 0xFF7A5A22.toInt(), 0f),
         FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.CENTER_VERTICAL).apply { rightMargin = dp(9f) })
     if (fav) v.addView(View(this).apply { setBackgroundColor(GOLD_LT) }, FrameLayout.LayoutParams(-1, hair(1f), Gravity.BOTTOM).apply { leftMargin = dp(24f); rightMargin = dp(24f); bottomMargin = dp(7f) })
-    val d = View(this).apply { background = shape(Style.ROUGE, oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
+    val d = View(this).apply { background = shape(dotC(Style.ROUGE), oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
     v.addView(d, FrameLayout.LayoutParams(dp(6f), dp(6f), Gravity.START or Gravity.CENTER_VERTICAL).apply { leftMargin = dp(10f) })
     gridDots[id] = d
     bindFolder(v, id)
@@ -351,12 +354,12 @@ private fun MainActivity.capsuleView(i: Int, id: String, nm: String, fav: Boolea
     }
     val two = nm.length > 3 && (nm.contains('&') || nm.contains('·'))
     val label = if (two) nm.replace("&", "&\n").replace("·", "·\n") else nm
-    val tv = txt(label, Style.kr(this, 500), nameSp(if (size < dp(50f)) 10f else 10.5f), look.nameColorOn(false, if (fav) GOLD_LT else Style.ivory(.92f)), -.05f, Gravity.CENTER).apply {
+    val tv = txt(label, nameFace(500), nameSp(if (size < dp(50f)) 10f else 10.5f), look.nameColorOn(false, if (fav) GOLD_LT else Style.ivory(.92f)), -.05f, Gravity.CENTER).apply {
         setShadowLayer(dpf(2f), 0f, dpf(1f), Color.argb(230, 0, 0, 0)); setLineSpacing(0f, .95f)
     }
     v.addView(tv, FrameLayout.LayoutParams(-1, -1).apply { leftMargin = dp(2f); rightMargin = dp(2f) })
     tv.gravity = Gravity.CENTER
-    val d = View(this).apply { background = shape(Style.ROUGE, oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
+    val d = View(this).apply { background = shape(dotC(Style.ROUGE), oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
     v.addView(d, FrameLayout.LayoutParams(dp(6f), dp(6f), Gravity.END or Gravity.TOP).apply { topMargin = dp(2f); rightMargin = dp(2f) })
     gridDots[id] = d
     bindFolder(v, id) { on -> v.animate().scaleX(if (on) 1.18f else 1f).scaleY(if (on) 1.18f else 1f).setDuration(120).start() }
@@ -404,13 +407,13 @@ private fun MainActivity.boardRow(i: Int, id: String, nm: String, fav: Boolean, 
     inner.addView(txt("%02d".format(i + 1), Fonts.mono(this), 10f, if (fav) Style.INK else 0xFFC9A86A.toInt(), 0f, Gravity.CENTER).apply {
         setBackgroundColor(if (fav) 0xFFB8914A.toInt() else 0xFF0D0D0D.toInt())
     }, LinearLayout.LayoutParams(dp(24f), ph))
-    val nmv = txt(nm, Style.kr(this, 400), nameSp(14f), look.nameColorOn(false, Style.IVORY), 0f, Gravity.CENTER_VERTICAL).apply {
+    val nmv = txt(nm, nameFace(400), nameSp(14f), look.nameColorOn(false, Style.IVORY), 0f, Gravity.CENTER_VERTICAL).apply {
         background = FlapBg(dpf(1f)); setPadding(dp(8f), 0, dp(4f), 0); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
     }
     inner.addView(nmv, LinearLayout.LayoutParams(0, ph, 1f).apply { leftMargin = dp(4f) })
     inner.addView(txt(if (count == 0) "—" else "%02d".format(count), Fonts.mono(this), 9f, Style.ivory(.65f), 0f, Gravity.END or Gravity.CENTER_VERTICAL), LinearLayout.LayoutParams(dp(22f), ph).apply { leftMargin = dp(4f) })
     r.addView(inner, FrameLayout.LayoutParams(-1, -1).apply { bottomMargin = dp(4f) })
-    val d = View(this).apply { background = shape(Style.ROUGE, oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
+    val d = View(this).apply { background = shape(dotC(Style.ROUGE), oval = true); visibility = if (badge) View.VISIBLE else View.GONE }
     r.addView(d, FrameLayout.LayoutParams(dp(6f), dp(6f), Gravity.END or Gravity.TOP).apply { rightMargin = dp(24f); topMargin = dp(3f) })
     gridDots[id] = d
     bindFolder(r, id) { on -> nmv.setTextColor(if (on) GOLD_LT else look.nameColorOn(false, Style.IVORY)) }
@@ -423,8 +426,8 @@ private fun MainActivity.wordView(i: Int, id: String, nm: String, fav: Boolean, 
     repo.coverApps(id).firstOrNull()?.let { a ->
         r.addView(ImageView(this).apply { setImageDrawable(iconOf(a)); styleIcon(this) }, LinearLayout.LayoutParams(dp(16f), dp(16f)).apply { rightMargin = dp(5f) })
     }
-    r.addView(txt(nm, Style.kr(this, 300), nameSp(17f), look.nameColorOn(false, if (fav) GOLD_LT else Style.ivory(.92f)), 0f), LinearLayout.LayoutParams(-2, -2))
-    val d = txt("●", Style.jost(this, 400), 7f, Style.ROUGE, 0f).apply { visibility = if (badge) View.VISIBLE else View.GONE }
+    r.addView(txt(nm, nameFace(300), nameSp(17f), look.nameColorOn(false, if (fav) GOLD_LT else Style.ivory(.92f)), 0f), LinearLayout.LayoutParams(-2, -2))
+    val d = txt("●", Style.jost(this, 400), 7f, dotC(Style.ROUGE), 0f).apply { visibility = if (badge) View.VISIBLE else View.GONE }
     r.addView(d, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(1f); bottomMargin = dp(8f) })
     gridDots[id] = d
     bindFolder(r, id)
@@ -558,14 +561,14 @@ internal fun MainActivity.showHourOpen(id: String) {
         val cell = appCell(a, a.pkg in Badges.shown(), id, compact = true, onDark = true).apply { background = windowDrawable(this@showHourOpen); setPadding(0, dp(12f), 0, dp(8f)) }
         grid.addView(cell, GridLayout.LayoutParams().apply { width = cw; if (i % 4 > 0) leftMargin = dp(6f); topMargin = dp(8f) })
     }
-    val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; addView(grid) }
+    val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = overMode(); addView(grid) }
     col.addView(sv, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(12f) })
     if (list.isEmpty()) col.addView(txt("비어 있습니다 · 다른 폴더의 앱을 길게 눌러 끌어 오세요", Style.kr(this, 300), 12f, tint(.65f, H_IVORY)), LinearLayout.LayoutParams(-1, -2))
     val close = txt("CLOSE · 닫기", Style.jost(this, 400), 12f, H_GOLD, .25f, Gravity.CENTER).apply { background = shape(stroke = H_GOLD, strokePx = hair(.75f)); setOnClickListener { hideCard() } }
     col.addView(close, LinearLayout.LayoutParams(dp(280f), dp(44f)).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(12f) })
     root.addView(layer, FrameLayout.LayoutParams(-1, -1))
     themeOpen = layer
-    if (!reduceMotion) { plate.alpha = 0f; plate.translationY = dpf(24f); plate.animate().alpha(1f).translationY(0f).setDuration(240).setInterpolator(MainActivity.EASE).start() }
+    themeContent = plate; motionOpen(plate) { a -> layer.background?.alpha = (a * 255).toInt() }
 }
 
 /** ④ VOYAGE 열린 폴더: 엽서 카드 — 우표 칸에 번호, 앱 5열, 남색 CLOSE */
@@ -596,14 +599,14 @@ internal fun MainActivity.showVoyageOpen(id: String) {
     val grid = GridLayout(this).apply { columnCount = 5 }
     val cw = (cardW - dp(44f)) / 5
     list.forEach { a -> grid.addView(appCell(a, a.pkg in Badges.shown(), id, onDark = Dk.inkPage), GridLayout.LayoutParams().apply { width = cw }) }
-    val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; addView(grid) }
+    val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = overMode(); addView(grid) }
     col.addView(sv, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = (h * .07f).roundToInt() })
     if (list.isEmpty()) col.addView(txt("비어 있습니다 · 다른 폴더의 앱을 길게 눌러 끌어 오세요", Style.kr(this, 300), 12f, tint(.7f, V_INK)), LinearLayout.LayoutParams(-1, -2))
     val close = txt("CLOSE · 닫기", Style.jost(this, 400), 12f, V_IVORY, .25f, Gravity.CENTER).apply { setBackgroundColor(V_INK); setOnClickListener { hideCard() } }
     col.addView(close, LinearLayout.LayoutParams(-1, dp(44f)).apply { topMargin = dp(12f) })
     root.addView(layer, FrameLayout.LayoutParams(-1, -1))
     themeOpen = layer
-    if (!reduceMotion) { card.alpha = 0f; card.translationY = dpf(24f); card.animate().alpha(1f).translationY(0f).setDuration(240).setInterpolator(MainActivity.EASE).start() }
+    themeContent = card; motionOpen(card) { a -> layer.background?.alpha = (a * 255).toInt() }
 }
 
 /** ⑤ CAPTION 열린 폴더: 사진 위에 제목과 앱 목록 2열 (한 화면, 넘치면 목록만 스크롤) */
@@ -628,11 +631,11 @@ internal fun MainActivity.showCaptionOpen(id: String) {
     list.forEachIndexed { i, a ->
         grid.addView(appCell(a, a.pkg in Badges.shown(), id, row = true, onDark = true), GridLayout.LayoutParams().apply { width = cw; if (i % 2 == 1) leftMargin = dp(16f) })
     }
-    val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; addView(grid) }
+    val sv = ScrollView(this).apply { isVerticalScrollBarEnabled = false; overScrollMode = overMode(); addView(grid) }
     layer.addView(sv, FrameLayout.LayoutParams(-1, -1).apply { leftMargin = L.x(28f); rightMargin = L.x(28f); topMargin = L.y(304f); bottomMargin = navBot + dp(76f) })
     root.addView(layer, FrameLayout.LayoutParams(-1, -1))
     themeOpen = layer
-    if (!reduceMotion) { layer.alpha = 0f; layer.animate().alpha(1f).setDuration(220).start() }
+    themeContent = layer; motionOpen(layer, null)
 }
 
 /** ② LIBRARY 열린 폴더: 펼친 책 두 쪽 — 왼쪽 VOL·제목·앱 수 + 앱 2열×4, 오른쪽 앱 2열×6 (한 번에 20개), 넘기기, 빨간 리본 CLOSE */
@@ -696,12 +699,12 @@ internal fun MainActivity.showLibraryOpen(id: String, page: Int = 0) {
     layer.addView(ribbon, FrameLayout.LayoutParams(dp(120f), dp(44f), Gravity.CENTER_HORIZONTAL).apply { topMargin = top + h - dp(12f) })
     root.addView(layer, FrameLayout.LayoutParams(-1, -1))
     themeOpen = layer
-    if (!reduceMotion) { book.alpha = 0f; book.translationY = dpf(30f); book.animate().alpha(1f).translationY(0f).setDuration(260).setInterpolator(MainActivity.EASE).start() }
+    themeContent = book; motionOpen(book) { a -> layer.background?.alpha = (a * 255).toInt() }
 }
 
 internal fun MainActivity.hideThemeOpen(): Boolean {
     val l = themeOpen ?: return false
-    root.removeView(l); themeOpen = null
+    root.removeView(l); themeOpen = null; themeContent = null; blurBehind(0f)
     footVisible(true)
     return true
 }
@@ -733,20 +736,20 @@ internal fun MainActivity.showCollection() {
     val dots = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
     repeat(5) { i -> dots.addView(View(this).apply { setBackgroundColor(Style.IVORY) }, LinearLayout.LayoutParams(dp(16f), dp(1f)).apply { if (i > 0) leftMargin = dp(8f) }) }
     layer.addView(dots, FrameLayout.LayoutParams(-1, dp(9f)).apply { topMargin = sbTop + dp(100f) + ph + dp(80f) })
-    val hint = txt("가운데 견본을 누르면 바로 바뀝니다 · 옆으로 밀어 넘기기", Style.kr(this, 300), 11f, Style.ivory(.5f), 0f, Gravity.CENTER)
-    layer.addView(hint, FrameLayout.LayoutParams(-1, -2).apply { topMargin = sbTop + dp(100f) + ph + dp(100f) })
-    // 바꾼 뒤 4초 동안: '○○로 바꿨습니다 · 되돌리기'
-    val undo = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(18f), 0, dp(6f), 0)
-        background = shape(0xFF1C1C1C.toInt(), tint(.5f, GOLD_LT), hair(.75f)); visibility = View.GONE
+    // 적용하기 (build-39 · 성훈님): '되돌리기' 대신 — 고른 테마를 적용하고 홈 화면으로 감
+    val applyBtn = txt("", Style.jost(this, 500), 13f, 0xFF0B0B0B.toInt(), .2f, Gravity.CENTER)
+    layer.addView(applyBtn, FrameLayout.LayoutParams(-1, dp(48f)).apply { leftMargin = dp(46f); rightMargin = dp(46f); topMargin = sbTop + dp(100f) + ph + dp(104f) })
+    val hint = txt("옆으로 밀어 고르기 · 적용하면 홈 화면으로 갑니다", Style.kr(this, 300), 12f, 0xFF8C8478.toInt(), 0f, Gravity.CENTER)
+    layer.addView(hint, FrameLayout.LayoutParams(-1, -2).apply { topMargin = sbTop + dp(100f) + ph + dp(168f) })
+    fun paintApply() {
+        if (sel == look.theme) {
+            applyBtn.text = "●  지금 쓰는 테마"; applyBtn.typeface = Style.kr(this, 300); applyBtn.letterSpacing = 0f; applyBtn.setTextColor(0xFF8C8478.toInt())
+            applyBtn.background = shape(Color.TRANSPARENT, Color.argb(77, 0xED, 0xE6, 0xD8), hair(1f)); applyBtn.isClickable = false
+        } else {
+            applyBtn.text = "${Look.NAMES[sel]} · 적용하기"; applyBtn.typeface = Style.jost(this, 500); applyBtn.letterSpacing = .2f; applyBtn.setTextColor(0xFF0B0B0B.toInt())
+            applyBtn.background = shape(0xFFF6F3EE.toInt()); applyBtn.isClickable = true
+        }
     }
-    val undoMsg = txt("", Style.kr(this, 300), 13f, Style.IVORY, 0f, Gravity.CENTER_VERTICAL)
-    undo.addView(undoMsg, LinearLayout.LayoutParams(0, -1, 1f))
-    val undoBtn = txt("되돌리기", Style.kr(this, 400), 13f, GOLD_LT, 0f, Gravity.CENTER).apply { background = UnderLine(GOLD_LT, dpf(1f), dpf(8f)) }
-    undo.addView(undoBtn, LinearLayout.LayoutParams(dp(88f), dp(48f)))
-    layer.addView(undo, FrameLayout.LayoutParams(-1, dp(48f), Gravity.BOTTOM).apply { leftMargin = dp(26f); rightMargin = dp(26f); bottomMargin = navBot + dp(32f) })
-    var prevTheme = look.theme
-    val hideUndo = Runnable { undo.visibility = View.GONE }
     fun place() {
         cards.forEachIndexed { t, v ->
             val d = t - sel
@@ -758,18 +761,16 @@ internal fun MainActivity.showCollection() {
         }
         name.text = Look.NAMES[sel]; whenT.text = Look.WHEN[sel]
         for (i in 0 until 5) dots.getChildAt(i).alpha = if (i == sel) 1f else .3f
+        paintApply()
     }
     placeFn = { place() }
     collPlace = { place() }
     fun applySel() {
         if (sel == look.theme) return
-        prevTheme = look.theme
-        applyTheme(sel); place(); collChanged = true
-        undoMsg.text = "${Look.NAMES[sel]}로 바꿨습니다"
-        undo.visibility = View.VISIBLE
-        undo.removeCallbacks(hideUndo); undo.postDelayed(hideUndo, 4000)
+        applyTheme(sel); collChanged = true
+        hideCollection()   // collChanged → 서랍 닫고 표지(홈)로
     }
-    undoBtn.setOnClickListener { val t = prevTheme; undo.visibility = View.GONE; sel = t; applyTheme(t); place() }
+    applyBtn.setOnClickListener { applySel() }
     // 옆으로 밀어 넘기기
     var x0 = 0f
     rail.setOnTouchListener { _, e ->
@@ -783,7 +784,7 @@ internal fun MainActivity.showCollection() {
                     when {
                         e.x < cx - pw / 2 -> { sel = (sel - 1).coerceAtLeast(0); place() }
                         e.x > cx + pw / 2 -> { sel = (sel + 1).coerceAtMost(4); place() }
-                        else -> applySel()   // 가운데 견본을 누르면 바로 적용
+                        else -> {}   // 가운데 견본은 고르기만 (적용은 단추로)
                     }
                 }
                 true

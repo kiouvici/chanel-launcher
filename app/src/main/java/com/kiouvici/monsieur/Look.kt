@@ -54,17 +54,69 @@ class Look(ctx: Context) {
         get() = p.getInt("nameColor", 0)
         set(v) { p.edit().putInt("nameColor", v).apply() }
 
-    val folderScale get() = floatArrayOf(.9f, 1f, 1.06f)[folderSize.coerceIn(0, 2)]   // 크게도 한 화면을 넘지 않게 (서랍에서 맞춤)
-    val iconDp get() = floatArrayOf(44f, 52f, 60f)[iconSize.coerceIn(0, 2)]
-    val nameDelta get() = floatArrayOf(-1f, 0f, 1.5f)[nameSize.coerceIn(0, 2)]
+    // ── 보기 · DISPLAY (build-39: 슬라이드·팔레트, 모든 테마 공통 — 성훈님 결정) ──
+    /** 앱 아이콘 36~72dp (예전 3단계 값에서 옮겨 옴) */
+    var iconDpV: Float
+        get() = p.getFloat("iconDpV", floatArrayOf(44f, 52f, 60f)[iconSize.coerceIn(0, 2)]).coerceIn(36f, 72f)
+        set(v) { p.edit().putFloat("iconDpV", v.coerceIn(36f, 72f)).apply() }
+    /** 폴더 크기 80~130% */
+    var folderPct: Int
+        get() = p.getInt("folderPct", intArrayOf(90, 100, 106)[folderSize.coerceIn(0, 2)]).coerceIn(80, 130)
+        set(v) { p.edit().putInt("folderPct", v.coerceIn(80, 130)).apply() }
+    /** 폴더 이름 12~20sp (14가 테마 기본) · 앱 이름 10~16sp (11이 기본) — 테마마다 기본 크기가 달라 '기본 대비 더하기'로 씀 */
+    var folderNameSp: Float
+        get() = p.getFloat("folderNameSp", 14f + floatArrayOf(-1f, 0f, 1.5f)[nameSize.coerceIn(0, 2)]).coerceIn(12f, 20f)
+        set(v) { p.edit().putFloat("folderNameSp", v.coerceIn(12f, 20f)).apply() }
+    var appNameSp: Float
+        get() = p.getFloat("appNameSp", 11f + floatArrayOf(-1f, 0f, 1.5f)[nameSize.coerceIn(0, 2)]).coerceIn(10f, 16f)
+        set(v) { p.edit().putFloat("appNameSp", v.coerceIn(10f, 16f)).apply() }
+    /** 앱 간격 0 좁게 · 1 기본 · 2 넓게 */
+    var gapMode: Int
+        get() = p.getInt("gapMode", 1).coerceIn(0, 2)
+        set(v) { p.edit().putInt("gapMode", v).apply() }
+    /** 글자 굵기 0 가늘게 · 1 기본 · 2 굵게 (테마 굵기에서 −100 / 0 / +100) */
+    var weightMode: Int
+        get() = p.getInt("weightMode", 1).coerceIn(0, 2)
+        set(v) { p.edit().putInt("weightMode", v).apply() }
+    var showAppNames: Boolean
+        get() = p.getBoolean("showAppNames", true)
+        set(v) { p.edit().putBoolean("showAppNames", v).apply() }
+    /** 이름 글꼴 0 테마 · 1 고딕 · 2 명조 */
+    var fontMode: Int
+        get() = p.getInt("fontMode", 0).coerceIn(0, 2)
+        set(v) { p.edit().putInt("fontMode", v).apply() }
+    /** 색: 0 = 테마 기본색 */
+    var folderColor: Int
+        get() = p.getInt("folderColor", legacyColor(false))
+        set(v) { p.edit().putInt("folderColor", v).apply() }
+    var appColor: Int
+        get() = p.getInt("appColor", 0)
+        set(v) { p.edit().putInt("appColor", v).apply() }
+    var dotColor: Int
+        get() = p.getInt("dotColor", 0)
+        set(v) { p.edit().putInt("dotColor", v).apply() }
+    var recentColors: List<Int>
+        get() = try { JSONArray(p.getString("recentColors", "[]")).let { a -> (0 until a.length()).map { a.getInt(it) } } } catch (e: Exception) { emptyList() }
+        set(v) { p.edit().putString("recentColors", JSONArray(v.distinct().take(6)).toString()).apply() }
+    fun addRecent(c: Int) { if (c != 0) recentColors = listOf(c) + recentColors.filter { it != c } }
+    /** 예전 '이름 색'(진하게·금색·옅게)을 고른 적 있으면 그 색으로 시작 */
+    private fun legacyColor(light: Boolean): Int = when (nameColor) { 2 -> 0xFFC9A96A.toInt(); else -> 0 }
+    /** 움직임 0 부드럽게 · 1 짧게 · 2 끄기 */
+    var motion: Int
+        get() = p.getInt("motion", 0).coerceIn(0, 2)
+        set(v) { p.edit().putInt("motion", v).apply() }
 
-    /** 바탕이 밝은지(종이·아이보리) 어두운지에 맞춰 이름 색을 고름 */
-    fun nameColorOn(light: Boolean, base: Int): Int = when (nameColor) {
-        1 -> if (light) Style.INK else Style.IVORY
-        2 -> if (light) Style.GILT else 0xFFE2C78E.toInt()
-        3 -> if (light) Style.ink(.55f) else Style.ivory(.55f)
-        else -> base
-    }
+    val folderScale get() = folderPct / 100f
+    val iconDp get() = iconDpV
+    /** 폴더 이름: 테마 기본 크기에 더하는 값 */
+    val nameDelta get() = folderNameSp - 14f
+    /** 앱 이름: 기본 크기에 더하는 값 */
+    val appNameDelta get() = appNameSp - 11f
+
+    /** 폴더 이름 색 (고른 색이 없으면 테마 색) */
+    fun nameColorOn(light: Boolean, base: Int): Int = if (folderColor != 0) folderColor else base
+    /** 앱 이름 색 */
+    fun appColorOn(base: Int): Int = if (appColor != 0) appColor else base
 
     var haToken: String
         get() = p.getString("haToken", "") ?: ""
@@ -82,6 +134,10 @@ class Look(ctx: Context) {
         get() = p.getInt("hourDial", 0).coerceIn(0, 1)
         set(v) { p.edit().putInt("hourDial", v).apply() }
     /** THE LIBRARY 원고지 순서 0 세로(왼쪽 1–15) · 1 가로 */
+    /** VOYAGE 서랍 라벨 순서: 0 세로(왼쪽 위→아래 먼저) · 1 가로(줄마다 왼쪽→오른쪽) */
+    var trainOrder: Int
+        get() = p.getInt("trainOrder", 0).coerceIn(0, 1)
+        set(v) { p.edit().putInt("trainOrder", v).apply() }
     var libOrder: Int
         get() = p.getInt("libOrder", 0).coerceIn(0, 1)
         set(v) { p.edit().putInt("libOrder", v).apply() }

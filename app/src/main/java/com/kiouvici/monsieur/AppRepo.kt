@@ -335,7 +335,7 @@ class AppRepo(private val ctx: Context) {
         fOpens.filterKeys { it in folderIds }.mapValues { it.value.values.sum() }.filter { it.value > 0 }
             .entries.sortedByDescending { it.value }.take(3).map { it.key }.toSet()
 
-    fun launch(a: AppEntry, folder: String?) {
+    fun launch(a: AppEntry, folder: String?, opts: android.os.Bundle? = null) {
         opens[a.pkg] = (opens[a.pkg] ?: 0) + 1
         Badges.markSeen(ctx, a.pkg)   // 연 앱의 점은 바로 꺼짐
         if (folder != null && folder in folderIds) {
@@ -345,7 +345,7 @@ class AppRepo(private val ctx: Context) {
         val i = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
             .setComponent(ComponentName(a.pkg, a.cls))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-        ctx.startActivity(i)
+        try { ctx.startActivity(i, opts) } catch (e: Exception) { ctx.startActivity(i) }
     }
 
     // 초기화는 맨 끝에서 — 위의 모든 필드(CHO, bmpCache, preset 등)가 먼저 만들어진 뒤에 실행해야 함
