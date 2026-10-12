@@ -65,4 +65,9 @@ adb shell am start -n $A --ei page 2; sleep 6
 adb shell input swipe 540 1200 540 1800 200; sleep 2
 adb exec-out screencap -p > shots/g5_ha_mid.png
 adb shell cmd statusbar collapse; sleep 1
+# 다른 앱 갔다가 돌아오기 (시간 기록)
+adb shell am start -a android.settings.SETTINGS; sleep 3
+adb shell input keyevent KEYCODE_HOME; sleep 3
+adb shell am start -a android.settings.SETTINGS; sleep 3
+adb shell input keyevent KEYCODE_HOME; sleep 3
 adb logcat -d -s AndroidRuntime:E MNS:D > shots/crash.txt || true
