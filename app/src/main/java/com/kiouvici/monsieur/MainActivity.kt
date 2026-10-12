@@ -1556,6 +1556,7 @@ class MainActivity : ComponentActivity(), MediaHost {
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     x0 = e.rawX; y0 = e.rawY; longed = false; dragged = false; moved = false
+                    TouchLog.add("앱칸 ↓ ${a.label}")
                     cell.postDelayed(onLong, longTime); true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -1577,6 +1578,7 @@ class MainActivity : ComponentActivity(), MediaHost {
                     true
                 }
                 MotionEvent.ACTION_UP -> {
+                    TouchLog.add("앱칸 ↑ ${a.label} 길게=$longed 움직임=$moved")
                     cell.removeCallbacks(onLong)
                     iv.animate().scaleX(1f).scaleY(1f).translationZ(0f).setDuration(120).start()
                     when {
@@ -1586,7 +1588,8 @@ class MainActivity : ComponentActivity(), MediaHost {
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
-                    cell.removeCallbacks(onLong); iv.scaleX = 1f; iv.scaleY = 1f; true
+                    TouchLog.add("앱칸 취소 ${a.label} (목록이 가져감)")
+                    cell.removeCallbacks(onLong); iv.scaleX = 1f; iv.scaleY = 1f; iv.translationZ = 0f; true
                 }
                 else -> true
             }

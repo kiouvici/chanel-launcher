@@ -346,7 +346,7 @@ class RubberScroll(ctx: android.content.Context, private val allowTop: Boolean =
             android.view.MotionEvent.ACTION_DOWN -> { y0 = e.y; lastY = e.y; raw = 0f; rubbering = false }
             android.view.MotionEvent.ACTION_MOVE -> if (on() && !rubbering) {
                 val dy = e.y - y0
-                if (kotlin.math.abs(dy) > startPx && atEdge(dy)) { rubbering = true; lastY = e.y; raw = 0f; back?.cancel(); return true }
+                if (kotlin.math.abs(dy) > startPx && atEdge(dy)) { rubbering = true; lastY = e.y; raw = 0f; back?.cancel(); TouchLog.add("고무줄 시작"); return true }
             }
         }
         return super.onInterceptTouchEvent(e)
