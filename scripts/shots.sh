@@ -28,7 +28,7 @@ for t in 0 1 2 3 4; do
 done
 adb logcat -d -s AndroidRuntime:E MNS:D > shots/crash.txt || true
 ls -la shots
-adb shell am start -n $A --ei theme 2 --ei page 0 --es sheet settings; sleep 4
+adb shell am start -n $A --ei theme 1 --ei page 0 --es sheet settings; sleep 4
 adb exec-out screencap -p > shots/s_settings.png
 adb shell input keyevent KEYCODE_BACK; sleep 1
 adb shell am start -n $A --ei page 0 --es sheet display; sleep 4

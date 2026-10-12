@@ -170,14 +170,14 @@ object Dk {
     @JvmStatic var lib = true
     @JvmStatic var voy = true
     const val LIB_BG = 0xFF15130F.toInt()      // 먹지 (따뜻한 검정)
-    const val LIB_PAGE = 0xFF1C1915.toInt()    // 열린 책장
+    const val LIB_PAGE = 0xFF1E1B17.toInt()    // 열린 책장
     const val LIB_TX = 0xFFEDE6D8.toInt()      // 본문 글자
     const val LIB_SUB = 0xFF8C8478.toInt()     // 보조 글자
     const val LIB_CORNER = 0xFFE3DCCF.toInt()  // 사진 모서리 (검정 위)
     const val LIB_DOT = 0xFFD23A40.toInt()     // 알림 점
     const val VOY_BG = 0xFF111318.toInt()      // 검은 니트 (차가운 검정)
     const val VOY_NAVY = 0xFF1B2A4A.toInt()    // 라벨 · 집 상자
-    const val VOY_NAVY2 = 0xFF24365C.toInt()   // 줄무늬 가운데 · CLOSE
+    const val VOY_NAVY2 = 0xFF2E4570.toInt()   // 줄무늬 가운데 (검정 니트 위에서 보이게)
     /** LIBRARY 글자색: 블랙이면 아이보리, 밝게면 먹 */
     fun li(a: Float = 1f) = tint(a, if (lib) LIB_TX else Style.INK)
     /** LIBRARY 바탕 */

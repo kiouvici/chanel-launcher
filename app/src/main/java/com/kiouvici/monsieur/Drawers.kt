@@ -515,13 +515,14 @@ class BookSpread(private val ctx: Context) : android.graphics.drawable.Drawable(
     override fun draw(c: Canvas) {
         val b = bounds
         paper.bounds = b; paper.draw(c)
-        val mid = b.exactCenterX(); val gw = ctx.dpf(18f)
-        p.shader = android.graphics.LinearGradient(mid - gw, 0f, mid, 0f, Color.TRANSPARENT, Color.argb(if (Dk.lib) 102 else 64, 0, 0, 0), android.graphics.Shader.TileMode.CLAMP)
+        val mid = b.exactCenterX(); val gw = ctx.dpf(if (Dk.lib) 12f else 18f)
+        val fold = if (Dk.lib) 140 else 64   // 블랙: 접힌 곳 그늘 55%
+        p.shader = android.graphics.LinearGradient(mid - gw, 0f, mid, 0f, Color.TRANSPARENT, Color.argb(fold, 0, 0, 0), android.graphics.Shader.TileMode.CLAMP)
         c.drawRect(mid - gw, b.top.toFloat(), mid, b.bottom.toFloat(), p)
-        p.shader = android.graphics.LinearGradient(mid, 0f, mid + gw, 0f, Color.argb(64, 0, 0, 0), Color.TRANSPARENT, android.graphics.Shader.TileMode.CLAMP)
+        p.shader = android.graphics.LinearGradient(mid, 0f, mid + gw, 0f, Color.argb(fold, 0, 0, 0), Color.TRANSPARENT, android.graphics.Shader.TileMode.CLAMP)
         c.drawRect(mid, b.top.toFloat(), mid + gw, b.bottom.toFloat(), p)
         p.shader = null; p.color = Color.argb(40, 0, 0, 0); c.drawRect(mid - .5f, b.top.toFloat(), mid + .5f, b.bottom.toFloat(), p)
-        if (Dk.lib) { p.style = Paint.Style.STROKE; p.strokeWidth = ctx.dpf(.75f); p.color = Color.argb(36, 237, 230, 216); c.drawRect(b.left + .5f, b.top + .5f, b.right - .5f, b.bottom - .5f, p); p.style = Paint.Style.FILL }
+        if (Dk.lib) { p.style = Paint.Style.STROKE; p.strokeWidth = ctx.dpf(1f); p.color = Color.argb(31, 237, 230, 216); c.drawRect(b.left + .5f, b.top + .5f, b.right - .5f, b.bottom - .5f, p); p.style = Paint.Style.FILL }
     }
     override fun setAlpha(alpha: Int) {}
     override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
@@ -716,7 +717,7 @@ internal fun MainActivity.showCollection() {
     var placeFn: () -> Unit = {}
     val cards = (0 until 5).map { t ->
         FrameLayout(this).apply {
-            background = Pic(Style.img(this@showCollection, "th/pv_$t.webp"), Pic.FIT)
+            background = Pic(Style.img(this@showCollection, if ((t == Look.LIBRARY && !Dk.lib) || (t == Look.TRAIN && !Dk.voy)) "th/pv_${t}l.webp" else "th/pv_$t.webp"), Pic.FIT)
             elevation = dpf(10f); clipToOutline = true
         }.also { rail.addView(it, FrameLayout.LayoutParams(pw, ph, Gravity.CENTER_HORIZONTAL)) }
     }
