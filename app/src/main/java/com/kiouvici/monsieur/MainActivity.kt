@@ -1064,8 +1064,7 @@ class MainActivity : ComponentActivity(), MediaHost {
     }
 
     private fun dot() = View(this).apply {
-        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Style.ROUGE) }
-        translationX = dpf(3f); translationY = -dpf(3f)
+        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Style.ROUGE); setStroke(dp(1.5f), 0xFFF6F3EE.toInt()) }
     }
 
     // ───────── 아이콘 모양: COLOR / MONO / GILT (샤넬팀 6:1) ─────────
@@ -1314,11 +1313,12 @@ class MainActivity : ComponentActivity(), MediaHost {
             if (row) { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; minimumHeight = dp(52f); background = UnderLine(Style.ivory(.1f), dpf(.5f), 0f) }
             else { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; setPadding(0, dp(2f), 0, if (compact) 0 else dp(16f)) }
         }
+        // 아이콘 둘레에 5dp 여유를 두고 알림 점(10dp, 아이보리 테)을 아이콘 오른쪽 위 모서리에 — 예전엔 칸 밖으로 밀려 잘려 거의 안 보였음
         val fr = FrameLayout(this)
         val iv = ImageView(this).apply { setImageDrawable(iconOf(a)); styleIcon(this) }
-        fr.addView(iv, FrameLayout.LayoutParams(ic, ic))
+        fr.addView(iv, FrameLayout.LayoutParams(ic, ic, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
         val cd = dot().apply { visibility = if (badge) View.VISIBLE else View.GONE }
-        fr.addView(cd, FrameLayout.LayoutParams(dp(6f), dp(6f), Gravity.END or Gravity.TOP))
+        fr.addView(cd, FrameLayout.LayoutParams(dp(10f), dp(10f), Gravity.END or Gravity.TOP))
         cardDots.getOrPut(a.pkg) { ArrayList() }.add(cd)
         // 표지 앱 고르기: 오른쪽 위 18dp 칸 (고른 앱은 금 바탕에 순서 숫자)
         val pf = pickFolder
@@ -1329,9 +1329,9 @@ class MainActivity : ComponentActivity(), MediaHost {
                 background = GradientDrawable().apply { if (n >= 0) setColor(Style.GOLD) else { setColor(Style.IVORY); setStroke(dp(1f), Style.ink(.4f)) } }
                 elevation = dpf(2f)
             }
-            fr.addView(boxv, FrameLayout.LayoutParams(dp(18f), dp(18f), Gravity.END or Gravity.TOP).apply { topMargin = dp(2f); rightMargin = dp(2f) })
+            fr.addView(boxv, FrameLayout.LayoutParams(dp(18f), dp(18f), Gravity.END or Gravity.TOP).apply { topMargin = dp(7f); rightMargin = dp(7f) })
         }
-        cell.addView(fr, LinearLayout.LayoutParams(ic, ic))
+        cell.addView(fr, LinearLayout.LayoutParams(ic + dp(10f), ic + dp(5f)))
         val nameSp = (if (row) 13f else if (compact) 10f else 11f) + look.nameDelta
         val nameCol = look.nameColorOn(!onDark, if (onDark) Style.ivory(.82f) else Style.ink(.8f))
         val t = label(a.label, Style.kr(this, 300), nameSp, nameCol, 0f, if (row) Gravity.START or Gravity.CENTER_VERTICAL else Gravity.CENTER_HORIZONTAL).apply {
