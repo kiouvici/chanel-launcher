@@ -780,19 +780,65 @@ class MainActivity : ComponentActivity(), MediaHost {
     }
 
     /** 가로로 민 것만 가로채서 화면을 넘김 (세로 스크롤은 HA에 그대로) */
+    // ───────── HA 화면 당겨서 새로고침 ─────────
+    private var pullDot: TextView? = null
+    private val pullNeed get() = dpf(72f)   // 이만큼(고무줄 적용 후) 당기면 새로고침
+    /** 손가락 아래 HA 화면(그림자 DOM 포함)이 맨 위까지 올라가 있는지 */
+    private fun haAtTop(x: Float, y: Float, cb: (Boolean) -> Unit) {
+        val w = if (cur == 2) web else if (cur == 3) webHouse else return
+        val d = resources.displayMetrics.density
+        val cx = x / d; val cy = (y - w.top) / d
+        val js = "(function(x,y){try{var e=document.elementFromPoint(x,y);while(e&&e.shadowRoot){var i=e.shadowRoot.elementFromPoint(x,y);if(!i||i===e)break;e=i;}" +
+            "if((window.scrollY||0)>0)return false;while(e){if(e.scrollTop>0)return false;e=e.parentNode||e.host;if(e&&e.nodeType===11)e=e.host;}return true;}catch(err){return false;}})($cx,$cy)"
+        try { w.evaluateJavascript(js) { r -> cb(r == "true") } } catch (_: Exception) { cb(false) }
+    }
+    private fun pullShow(pull: Float) {
+        val dot = pullDot ?: label("↻", Style.jost(this, 400), 18f, Style.INK, 0f, Gravity.CENTER).apply {
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Style.IVORY); setStroke(hair(1f), Style.gold(.6f)) }
+            elevation = dpf(30f)
+        }.also { pullDot = it; root.addView(it, FrameLayout.LayoutParams(dp(40f), dp(40f), Gravity.CENTER_HORIZONTAL)) }
+        val d = pull * .5f   // 손가락의 절반만 따라옴 (고무줄)
+        dot.animate().cancel()
+        dot.alpha = (d / pullNeed).coerceIn(0f, 1f)
+        dot.translationY = sbTop + d.coerceAtMost(dpf(110f)) - dpf(20f)
+        dot.rotation = d * 2.2f
+        val ready = d >= pullNeed
+        if (ready && dot.tag != true) { dot.tag = true; dot.hap(Hap.SEL) } else if (!ready) dot.tag = false
+        dot.setTextColor(if (ready) Style.GOLD else Style.INK)
+    }
+    private fun pullRelease(pull: Float) {
+        val dot = pullDot ?: return
+        if (pull * .5f >= pullNeed) {
+            val w = if (cur == 2) web else webHouse
+            TouchLog.add("HA 새로고침 (당겨서)")
+            dot.hap(Hap.LIGHT)
+            w.reload()
+            dot.animate().rotationBy(720f).setDuration(900).withEndAction {
+                dot.animate().alpha(0f).translationY(sbTop - dpf(40f)).setDuration(220).start()
+            }.start()
+        } else {
+            dot.animate().alpha(0f).translationY(sbTop - dpf(40f)).setDuration(260).setInterpolator(SpringInterp(.4f, 1f, 260)).start()
+        }
+    }
+
     private inner class Pager : FrameLayout(this@MainActivity) {
         private var x0 = 0f; private var y0 = 0f; private var dragging = false
         private var vertical = false; private var p0 = 0f; private var shadeDone = false
         private var tDown = 0L; private var yDown = 0f
         private val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
         private var vt: android.view.VelocityTracker? = null
+        // HA 화면 아래로 당겨 새로고침 (성훈님, build-45): 위쪽 100dp(알림창 자리) 아래에서 시작하고, 손가락 아래 HA 목록이 맨 위일 때만
+        private var pulling = false; private var webAtTop = false
         override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> { x0 = e.x; y0 = e.y; tDown = e.eventTime; yDown = e.y; dragging = false; vertical = false; shadeDone = false; p0 = openP; pageAnim?.cancel()
+                    pulling = false; webAtTop = false
+                    if (cur >= 2 && y0 >= dpf(100f)) haAtTop(e.x, e.y) { webAtTop = it }
                     vt?.recycle(); vt = android.view.VelocityTracker.obtain(); vt?.addMovement(e) }
                 MotionEvent.ACTION_MOVE -> {
                     vt?.addMovement(e)
                     val dx = e.x - x0; val dy = e.y - y0
+                    if (cur >= 2 && webAtTop && y0 >= dpf(100f) && dy > dpf(24f) && dy > kotlin.math.abs(dx) * 1.5f) { pulling = true; return true }
                     if (kotlin.math.abs(dx) > slop * 2 && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.2f) { dragging = true; x0 = e.x - dx; return true }
                     // 표지 위 사진·버튼을 누른 채 위로 쓸어도 서랍이 열림 — 더 예민하게(12dp, 세로가 가로보다 크면) (10번에 2번 안 되던 것)
                     if ((cur == 0 || cur == 1) && -dy > dpf(6f) && kotlin.math.abs(dy) > kotlin.math.abs(dx)) { vertical = true; y0 = e.y - dy; return true }
@@ -804,6 +850,14 @@ class MainActivity : ComponentActivity(), MediaHost {
         }
         override fun onTouchEvent(e: MotionEvent): Boolean {
             vt?.addMovement(e)
+            if (pulling) {
+                val pull = (e.y - y0).coerceAtLeast(0f)
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_MOVE -> pullShow(pull)
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { pulling = false; pullRelease(pull) }
+                }
+                return true
+            }
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     x0 = e.x; y0 = e.y; tDown = e.eventTime; yDown = e.y; dragging = false; vertical = false; shadeDone = false; p0 = openP; pageAnim?.cancel()
