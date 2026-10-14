@@ -652,9 +652,6 @@ internal fun MainActivity.showLibraryOpen(id: String, page: Int = 0, turnDir: In
     footVisible(false)
     cardFolder = id
     val list = repo.appsIn(id)
-    val pages = maxOf(1, (list.size + 19) / 20)
-    val pg = page.coerceIn(0, pages - 1)
-    val chunk = list.drop(pg * 20).take(20)
     val layer = SwipeLayer(this) { hideCard() }.apply { elevation = dpf(24f); isClickable = true }
     layer.addView(View(this).apply { setBackgroundColor(if (Dk.lib) Color.argb(140, 0, 0, 0) else Color.argb(72, 60, 42, 22)); setOnClickListener { hideCard() } }, FrameLayout.LayoutParams(-1, -1))
     val L = Lay(this, layer, root.width, root.height)
@@ -665,6 +662,16 @@ internal fun MainActivity.showLibraryOpen(id: String, page: Int = 0, turnDir: In
     val h = minOf(L.z(600f), root.height - top - navBot - dp(52f))
     val book = FrameLayout(this).apply { background = BookSpread(this@showLibraryOpen); elevation = dpf(12f); isClickable = true }
     val cellW = (pageW - dp(28f)) / 2
+    // 한 쪽에 몇 줄 들어가는지 실제 앱 칸 높이로 계산 (아이콘·글자를 키우면 오른쪽 아래 앱과 '넘기기'가 책 밖으로 잘리던 것 — 성훈님)
+    val cellH = list.firstOrNull()?.let { a -> appCell(a, false, id).let { c -> c.measure(View.MeasureSpec.makeMeasureSpec(cellW, View.MeasureSpec.EXACTLY), View.MeasureSpec.UNSPECIFIED); c.measuredHeight } } ?: dp(90f)
+    val titleH = if (shortName(repo.nameOf(id)).length > 7) dp(64f) else dp(34f)
+    val leftRows = ((h - dp(40f) - dp(14f + 10f + 26f + 16f + 20f) - titleH) / cellH).coerceAtLeast(1)
+    val rightRows = ((h - dp(40f) - dp(44f)) / cellH).coerceAtLeast(1)
+    val leftCap = leftRows * 2
+    val per = leftCap + rightRows * 2
+    val pages = maxOf(1, (list.size + per - 1) / per)
+    val pg = page.coerceIn(0, pages - 1)
+    val chunk = list.drop(pg * per).take(per)
     fun grid(apps: List<AppEntry>) = GridLayout(this).apply { columnCount = 2
         apps.forEach { a -> addView(appCell(a, a.pkg in Badges.shown(), id), GridLayout.LayoutParams().apply { width = cellW }) } }
     val left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18f), dp(24f), dp(10f), dp(16f)) }
@@ -674,13 +681,13 @@ internal fun MainActivity.showLibraryOpen(id: String, page: Int = 0, turnDir: In
     cnt.append("${list.size}", android.text.style.TypefaceSpan(Style.jost(this, 300)), 0)
     cnt.append(if (list.size == 1) " app" else " apps")
     left.addView(txt(cnt, Fonts.serifI(this), 16f, ink(.65f)), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2f) })
-    left.addView(grid(chunk.take(8)), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(16f) })
+    left.addView(grid(chunk.take(leftCap)), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(16f) })
     if (list.isEmpty()) left.addView(txt("비어 있습니다 · 다른 폴더의 앱을 길게 눌러 끌어 오세요", Style.kr(this, 300), 12f, ink(.65f)).apply { setLineSpacing(dpf(3f), 1f) }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12f) })
     left.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
     left.addView(txt(if (pages > 1) "— ${pg + 1} / $pages —" else "", Style.jost(this, 400), 10f, ink(.4f), .2f), LinearLayout.LayoutParams(-1, -2))
     book.addView(left, FrameLayout.LayoutParams(pageW, -1))
     val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14f), dp(24f), dp(14f), dp(16f)) }
-    right.addView(grid(chunk.drop(8)), LinearLayout.LayoutParams(-2, -2))
+    right.addView(grid(chunk.drop(leftCap)), LinearLayout.LayoutParams(-2, -2))
     right.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
     val turn = txt(if (pages > 1) "넘기기 ›" else "", Style.kr(this, 400), 12f, ink(.55f), 0f, Gravity.END or Gravity.CENTER_VERTICAL)
     if (pages > 1) turn.setOnClickListener { showLibraryOpen(id, (pg + 1) % pages, 1) }

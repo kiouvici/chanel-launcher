@@ -1749,6 +1749,9 @@ class MainActivity : ComponentActivity(), MediaHost {
         if (src != null) items += item("이 폴더에서 빼기") { repo.removeFrom(a.pkg, src); refreshAll() }
         if (repo.isHidden(a.pkg)) items += item("다시 보이기") { repo.unhide(a.pkg); refreshAll() }
         else items += item("숨기기") { repo.hide(a.pkg); refreshAll() }
+        // 앱 삭제 (성훈님): 기본 앱처럼 지울 수 없는 시스템 앱에는 안 보임 — 누르면 안드로이드 삭제 확인 창
+        val sys = try { (packageManager.getApplicationInfo(a.pkg, 0).flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0 } catch (e: Exception) { true }
+        if (!sys) items += item("앱 삭제") { openSafely(Intent(Intent.ACTION_DELETE, android.net.Uri.parse("package:" + a.pkg))) }
         items += item("앱 정보") {
             openSafely(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + a.pkg)))
         }
