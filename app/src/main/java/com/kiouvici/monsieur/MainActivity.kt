@@ -514,6 +514,15 @@ class MainActivity : ComponentActivity(), MediaHost {
             override fun onProgressChanged(view: WebView?, p: Int) { if (isHome) setProgress(p / 100f) }
         }
         webViewClient = object : WebViewClient() {
+            // 대시보드에서 다른 앱 열기 (intent:… · spotify: 등). 웹페이지로 열지 않고 앱을 실행.
+            // 이게 없으면 주소를 못 열어 onReceivedError → 표지로 튕김 (2026-10-17)
+            override fun shouldOverrideUrlLoading(view: WebView?, req: WebResourceRequest?): Boolean {
+                val u = req?.url ?: return false
+                val s = (u.scheme ?: "").lowercase()
+                if (s == "http" || s == "https" || s == "about" || s == "data" || s == "blob" || s == "javascript") return false
+                openExternal(u.toString())
+                return true
+            }
             override fun onPageFinished(view: WebView?, u: String?) {
                 if ((u ?: "").contains("/auth/")) {
                     // 방금 로그인했으면 다시 띄우지 않고 한 번 더 불러오기만 (토큰 반영 지연 대비)
@@ -536,6 +545,22 @@ class MainActivity : ComponentActivity(), MediaHost {
             }
         }
         loadUrl(url)
+    }
+
+    /** intent:… 은 그 앱을, 다른 주소(spotify: 등)는 그 주소를 받을 앱을 연다. 없으면 안내만 하고 홈은 그대로. */
+    private fun openExternal(url: String) {
+        try {
+            val i = if (url.startsWith("intent:", true)) Intent.parseUri(url, Intent.URI_INTENT_SCHEME).apply { component = null; selector = null } else Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            try { startActivity(i) } catch (e: android.content.ActivityNotFoundException) {
+                // 못 찾으면 그 패키지의 실행 화면으로 다시 시도
+                val pk = i.`package`
+                val li = if (pk != null) packageManager.getLaunchIntentForPackage(pk) else null
+                if (li != null) startActivity(li.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) else throw e
+            }
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(this, "앱이 설치되어 있지 않습니다", android.widget.Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun buildPages() {
