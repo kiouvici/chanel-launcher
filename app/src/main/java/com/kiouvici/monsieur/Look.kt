@@ -101,6 +101,14 @@ class Look(ctx: Context) {
     fun addRecent(c: Int) { if (c != 0) recentColors = listOf(c) + recentColors.filter { it != c } }
     /** 예전 '이름 색'(진하게·금색·옅게)을 고른 적 있으면 그 색으로 시작 */
     private fun legacyColor(light: Boolean): Int = when (nameColor) { 2 -> 0xFFC9A96A.toInt(); else -> 0 }
+    /** 페이지 순서 (표지 다음): 1 미디어 · 2 HA 홈 · 3 HA 집 — 기본 HA 홈 → HA 집 → 미디어 (성훈님, build-46) */
+    var pageOrder: List<Int>
+        get() = (p.getString("pageOrder", "2,3,1") ?: "2,3,1").split(",").mapNotNull { it.trim().toIntOrNull() }.takeIf { it.sorted() == listOf(1, 2, 3) } ?: listOf(2, 3, 1)
+        set(v) { p.edit().putString("pageOrder", v.joinToString(",")).apply() }
+    /** 자동으로 돌아오기: 손을 뗀 뒤 이 시간(초)이 지나면 열린 카드·세부 화면에서 나와 맨 위로 (기본 15초) */
+    var idleBackSec: Int
+        get() = p.getInt("idleBackSec", 15)
+        set(v) { p.edit().putInt("idleBackSec", v).apply() }
     /** 움직임 0 부드럽게 · 1 짧게 · 2 끄기 */
     var motion: Int
         get() = p.getInt("motion", 0).coerceIn(0, 2)
