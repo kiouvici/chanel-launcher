@@ -351,8 +351,12 @@ class MainActivity : ComponentActivity(), MediaHost {
         if (want) { tiltBase = null; sm.getDefaultSensor(android.hardware.Sensor.TYPE_GAME_ROTATION_VECTOR)?.let { sm.registerListener(tiltL, it, android.hardware.SensorManager.SENSOR_DELAY_UI) } }
         else { sm.unregisterListener(tiltL); themeCover.parallax(0f, 0f) }
     }
-    override fun onStart() { super.onStart(); TouchLog.add("onStart") }
-    override fun onStop() { super.onStop(); TouchLog.add("onStop (다른 앱으로)") }
+    override fun onStart() {
+        super.onStart(); stopped = false; TouchLog.add("onStart")
+        // 화면이 꺼져 있거나 다른 앱에 있는 동안 시간이 다 됐으면, 보이기 전에 바로 돌아옴 (build-53)
+        if (lastTouchAt > 0L && System.currentTimeMillis() - lastTouchAt >= look.idleSec * 1000L) idleReturn()
+    }
+    override fun onStop() { super.onStop(); stopped = true; TouchLog.add("onStop (다른 앱으로)") }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         TouchLog.add(if (hasFocus) "창 포커스 받음" else "창 포커스 잃음")
@@ -361,22 +365,35 @@ class MainActivity : ComponentActivity(), MediaHost {
     private var tlMoves = 0; private var tlX = 0f; private var tlY = 0f
     // ───────── 자동 돌아오기 (성훈님, build-47): 손을 뗀 뒤 정한 시간이 지나면 열린 카드에서 나와 맨 위로 ─────────
     private val idleRun = Runnable { idleReturn() }
-    private fun armIdle() { root.removeCallbacks(idleRun); root.postDelayed(idleRun, look.idleSec * 1000L) }
+    private var stopped = false; private var lastTouchAt = 0L
+    /** 마지막으로 손을 뗀 때부터 정한 시간 (화면이 꺼지거나 다른 앱에 있어도 계속 셈) */
+    private fun armIdle() {
+        root.removeCallbacks(idleRun)
+        if (lastTouchAt == 0L) return   // 이미 돌아왔고 그 뒤로 만진 적 없음
+        val left = (lastTouchAt + look.idleSec * 1000L - System.currentTimeMillis()).coerceAtLeast(0L)
+        root.postDelayed(idleRun, left)
+    }
     private fun idleReturn() {
-        if (!hasWindowFocus() || sheet != null || menuLayer != null || collection != null || imeUp) { armIdle(); return }
+        root.removeCallbacks(idleRun)
+        // 런처를 보고 있는데 알림창 등으로 포커스만 잃은 때는 미룸. 화면 꺼짐·다른 앱(onStop)일 때는 그대로 진행
+        if ((!stopped && !hasWindowFocus()) || sheet != null || menuLayer != null || collection != null || imeUp) { root.postDelayed(idleRun, look.idleSec * 1000L); return }
         var did = false
         // 런처: 열린 폴더 카드 닫고 서랍 맨 위로
         if (themeOpen != null || (::card.isInitialized && card.visibility == View.VISIBLE)) { hideCard(); did = true }
-        if (openP > 0f && ::stage.isInitialized && stage.scrollY > 0) { stage.smoothScrollTo(0, 0); did = true }
+        if (openP > 0f && ::stage.isInitialized && stage.scrollY > 0) { if (stopped) stage.scrollTo(0, 0) else stage.smoothScrollTo(0, 0); did = true }
         // HA 화면: 세부 화면·팝업에서 나와 맨 위로
         if (openP == 0f && kind >= 2) { haReset(if (kind == 2) web else webHouse, if (kind == 2) HOME_URL else HOUSE_URL); did = true }
-        if (did) TouchLog.add("자동 돌아오기 (${Look.idleName(look.idleSec)})")
+        lastTouchAt = 0L   // 한 번 돌아오면 다음 손댈 때까지 다시 안 셈
+        if (did) TouchLog.add("자동 돌아오기 (${Look.idleName(look.idleSec)}${if (stopped) " · 화면 꺼짐/다른 앱" else ""})")
     }
     /** HA 화면 처음으로: 다른 보기(주소)로 들어가 있으면 첫 화면을 다시 열고, 같은 보기면 팝업·세부 창을 닫고 맨 위로 스크롤 */
     private fun haReset(w: WebView, topUrl: String) {
         val path = android.net.Uri.parse(w.url ?: "").path ?: ""
-        if (path.isNotEmpty() && !Regex("/dashboard-chanel/(home|house|0|1)/?$").containsMatchIn(path) && !path.contains("/auth/")) { w.loadUrl(topUrl); return }
-        val js = "(function(){try{" +
+        val top = android.net.Uri.parse(topUrl).path ?: ""
+        // 다른 보기에 들어가 있으면 HA 안에서 첫 보기로 이동 (예전엔 주소를 다시 열어 HA가 처음부터 다시 불러와졌음 — build-53)
+        val nav = if (path.isNotEmpty() && !Regex("/dashboard-chanel/(home|house|0|1)/?$").containsMatchIn(path) && !path.contains("/auth/"))
+            "history.replaceState(null,'','$top');window.dispatchEvent(new CustomEvent('location-changed',{detail:{replace:true}}));" else ""
+        val js = "(function(){try{" + nav +
             "if(window.browser_mod&&window.browser_mod.service){try{window.browser_mod.service('close_popup',{});}catch(e){}}" +
             "var ha=document.querySelector('home-assistant');if(ha){ha.dispatchEvent(new CustomEvent('hass-more-info',{detail:{entityId:null},bubbles:true,composed:true}));}" +
             "var a=document.activeElement;while(a&&a.shadowRoot&&a.shadowRoot.activeElement)a=a.shadowRoot.activeElement;" +
@@ -385,10 +402,12 @@ class MainActivity : ComponentActivity(), MediaHost {
             "var st=[document];while(st.length){var r=st.pop();var all=r.querySelectorAll('*');for(var i=0;i<all.length;i++){var e=all[i];if(e.scrollTop>0){e.scrollTo({top:0,behavior:'smooth'});}if(e.shadowRoot)st.push(e.shadowRoot);}}" +
             "}catch(err){}})()"
         try { w.evaluateJavascript(js, null) } catch (_: Exception) {}
+        // 보기 이동 뒤 새 보기가 그려지면 한 번 더 맨 위로
+        if (nav.isNotEmpty()) w.postDelayed({ try { w.evaluateJavascript(js.replace(nav, ""), null) } catch (_: Exception) {} }, 600)
     }
 
     override fun dispatchTouchEvent(e: MotionEvent): Boolean {
-        when (e.actionMasked) { MotionEvent.ACTION_DOWN -> root.removeCallbacks(idleRun); MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> armIdle() }
+        when (e.actionMasked) { MotionEvent.ACTION_DOWN -> root.removeCallbacks(idleRun); MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { lastTouchAt = System.currentTimeMillis(); armIdle() } }
         val t0 = android.os.SystemClock.uptimeMillis()
         val r = super.dispatchTouchEvent(e)
         val took = android.os.SystemClock.uptimeMillis() - t0
@@ -941,8 +960,8 @@ class MainActivity : ComponentActivity(), MediaHost {
                     if (kotlin.math.abs(dx) > slop * 2 && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.2f) { dragging = true; x0 = e.x - dx; return true }
                     // 표지 위 사진·버튼을 누른 채 위로 쓸어도 서랍이 열림 — 더 예민하게(12dp, 세로가 가로보다 크면) (10번에 2번 안 되던 것)
                     if ((kind == 0 || kind == 1) && -dy > dpf(6f) && kotlin.math.abs(dy) > kotlin.math.abs(dx)) { vertical = true; y0 = e.y - dy; return true }
-                    // HA 화면: 아래 가장자리(약 1.5cm 띠)에서 시작해 위로 쓸면 서랍, 그 위에서는 HA 스크롤 그대로 (build-50)
-                    if (kind >= 2 && y0 >= height - navBot - dpf(94f) && -dy > dpf(10f) && kotlin.math.abs(dy) > kotlin.math.abs(dx) * 1.2f) {
+                    // HA 화면: 아래 가장자리(약 3cm 띠)에서 시작해 위로 쓸면 서랍, 그 위에서는 HA 스크롤 그대로 (build-50, 3cm로 넓힘 build-53)
+                    if (kind >= 2 && y0 >= height - navBot - dpf(189f) && -dy > dpf(10f) && kotlin.math.abs(dy) > kotlin.math.abs(dx) * 1.2f) {
                         TouchLog.add("HA 아래 가장자리에서 위로 → 서랍"); vertical = true; y0 = e.y - dy; return true }
                     // 아래로 쓸면 아이폰처럼: 왼쪽 절반 알림 · 오른쪽 절반 빠른 설정. HA 화면은 위쪽 100dp에서 시작할 때만 (HA 안 스크롤과 안 겹치게)
                     if (!shadeDone && dy > dpf(18f) && dy > kotlin.math.abs(dx) * 1.5f && (kind == 0 || kind == 1 || y0 < dpf(100f))) { shadeDone = true; expandShade(x0 > width / 2f); return true }
