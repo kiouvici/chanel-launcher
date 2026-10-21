@@ -543,6 +543,8 @@ class MainActivity : ComponentActivity(), MediaHost {
         webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, p: Int) { if (isHome) setProgress(p / 100f) }
         }
+        // 대시보드가 주소 이동 대신 직접 부르는 앱 열기 통로 (build-50: 가끔 intent: 를 가로채지 못해 '웹페이지를 사용할 수 없음'이 뜨던 문제)
+        addJavascriptInterface(AppBridge(), "MonsieurApp")
         webViewClient = object : WebViewClient() {
             // 대시보드에서 다른 앱 열기 (intent:… · spotify: 등). 웹페이지로 열지 않고 앱을 실행.
             // 이게 없으면 주소를 못 열어 onReceivedError → 표지로 튕김 (2026-10-17)
@@ -568,6 +570,17 @@ class MainActivity : ComponentActivity(), MediaHost {
                 if (isHome) { pageLoaded = true; hideProgress(); root.postDelayed({ refreshWeather() }, 4000) }
             }
             override fun onReceivedError(view: WebView?, req: WebResourceRequest?, err: WebResourceError?) {
+                // 예비 처리: 가로채기를 건너뛰고 intent: 등이 웹페이지로 열리려다 실패하면 → 앱을 열고 HA 화면은 원래대로
+                val u = req?.url
+                val sc = (u?.scheme ?: "").lowercase()
+                if (u != null && sc.isNotEmpty() && sc != "http" && sc != "https" && sc != "about" && sc != "data" && sc != "blob" && sc != "javascript") {
+                    if (req?.isForMainFrame == true) {
+                        TouchLog.add("앱 열기 예비 처리: $sc")
+                        openExternal(u.toString())
+                        view?.let { v -> v.post { if (v.canGoBack()) v.goBack() else v.loadUrl(if (isHome) HOME_URL else HOUSE_URL) } }
+                    }
+                    return
+                }
                 if (req?.isForMainFrame == true && isHome) { pageLoaded = false; showFail() }
             }
             override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
@@ -577,8 +590,25 @@ class MainActivity : ComponentActivity(), MediaHost {
         loadUrl(url)
     }
 
+    /** HA 화면 JS에서 window.MonsieurApp.open('intent:…') 로 부름. 앱 여는 주소만 받음 (http 등은 무시) */
+    private inner class AppBridge {
+        @android.webkit.JavascriptInterface
+        fun open(url: String?): Boolean {
+            val u = url ?: return false
+            val sc = u.substringBefore(':').lowercase()
+            if (u.indexOf(':') <= 0 || sc == "http" || sc == "https" || sc == "javascript" || sc == "file" || sc == "content" || sc == "data") return false
+            runOnUiThread { TouchLog.add("앱 열기 통로: ${u.take(80)}"); openExternal(u) }
+            return true
+        }
+    }
+
+    private var lastExtUrl = ""; private var lastExtAt = 0L
     /** intent:… 은 그 앱을, 다른 주소(spotify: 등)는 그 주소를 받을 앱을 연다. 없으면 안내만 하고 홈은 그대로. */
     private fun openExternal(url: String) {
+        // 같은 주소가 1초 안에 두 번 오면(통로 + 예비 처리) 한 번만
+        val now = System.currentTimeMillis()
+        if (url == lastExtUrl && now - lastExtAt < 1000) return
+        lastExtUrl = url; lastExtAt = now
         try {
             val i = if (url.startsWith("intent:", true)) Intent.parseUri(url, Intent.URI_INTENT_SCHEME).apply { component = null; selector = null } else Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -911,6 +941,9 @@ class MainActivity : ComponentActivity(), MediaHost {
                     if (kotlin.math.abs(dx) > slop * 2 && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.2f) { dragging = true; x0 = e.x - dx; return true }
                     // 표지 위 사진·버튼을 누른 채 위로 쓸어도 서랍이 열림 — 더 예민하게(12dp, 세로가 가로보다 크면) (10번에 2번 안 되던 것)
                     if ((kind == 0 || kind == 1) && -dy > dpf(6f) && kotlin.math.abs(dy) > kotlin.math.abs(dx)) { vertical = true; y0 = e.y - dy; return true }
+                    // HA 화면: 아래 가장자리(약 1.5cm 띠)에서 시작해 위로 쓸면 서랍, 그 위에서는 HA 스크롤 그대로 (build-50)
+                    if (kind >= 2 && y0 >= height - navBot - dpf(94f) && -dy > dpf(10f) && kotlin.math.abs(dy) > kotlin.math.abs(dx) * 1.2f) {
+                        TouchLog.add("HA 아래 가장자리에서 위로 → 서랍"); vertical = true; y0 = e.y - dy; return true }
                     // 아래로 쓸면 아이폰처럼: 왼쪽 절반 알림 · 오른쪽 절반 빠른 설정. HA 화면은 위쪽 100dp에서 시작할 때만 (HA 안 스크롤과 안 겹치게)
                     if (!shadeDone && dy > dpf(18f) && dy > kotlin.math.abs(dx) * 1.5f && (kind == 0 || kind == 1 || y0 < dpf(100f))) { shadeDone = true; expandShade(x0 > width / 2f); return true }
                 }
