@@ -538,8 +538,6 @@ class MainActivity : ComponentActivity(), MediaHost {
         settings.databaseEnabled = true
         settings.mediaPlaybackRequiresUserGesture = false
         settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-        // 회사 네트워크에서의 연결 지연 대응 (원격 synology.me 접속)
-        settings.standardFontFamily = "sans-serif"
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
         webChromeClient = object : WebChromeClient() {
@@ -570,20 +568,7 @@ class MainActivity : ComponentActivity(), MediaHost {
                 if (isHome) { pageLoaded = true; hideProgress(); root.postDelayed({ refreshWeather() }, 4000) }
             }
             override fun onReceivedError(view: WebView?, req: WebResourceRequest?, err: WebResourceError?) {
-                if (req?.isForMainFrame == true && isHome) {
-                    // 네트워크 타임아웃/연결 오류면 2초 후 자동 재시도 (회사 네트워크 간헐적 지연 대응)
-                    val code = err?.errorCode ?: -1
-                    if (code == android.webkit.WebViewClient.ERROR_TIMEOUT ||
-                        code == android.webkit.WebViewClient.ERROR_CONNECT ||
-                        code == android.webkit.WebViewClient.ERROR_HOST_LOOKUP ||
-                        code == android.webkit.WebViewClient.ERROR_PROXY_AUTHENTICATION ||
-                        code == -2) { // ERROR_UNKNOWN
-                        view?.postDelayed({ view.reload() }, 2000)
-                        return
-                    }
-                    pageLoaded = false
-                    showFail()
-                }
+                if (req?.isForMainFrame == true && isHome) { pageLoaded = false; showFail() }
             }
             override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
                 handler?.cancel(); if (isHome) { pageLoaded = false; showFail() }
