@@ -382,7 +382,11 @@ class MainActivity : ComponentActivity(), MediaHost {
         if (themeOpen != null || (::card.isInitialized && card.visibility == View.VISIBLE)) { hideCard(); did = true }
         if (openP > 0f && ::stage.isInitialized && stage.scrollY > 0) { if (stopped) stage.scrollTo(0, 0) else stage.smoothScrollTo(0, 0); did = true }
         // HA 화면: 세부 화면·팝업에서 나와 맨 위로
-        if (openP == 0f && kind >= 2) { haReset(if (kind == 2) web else webHouse, if (kind == 2) HOME_URL else HOUSE_URL); did = true }
+        // 화면을 끄면 표지로 가므로, 보고 있는 화면과 상관없이 HA 홈·집 둘 다 처음으로 (build-55). 서랍 아래 보이는 HA 화면만 그대로
+        for ((k, w) in listOf(2 to web, 3 to webHouse)) {
+            if (openP > 0f && kind == k) continue
+            haReset(w, if (k == 2) HOME_URL else HOUSE_URL); did = true
+        }
         lastTouchAt = 0L   // 한 번 돌아오면 다음 손댈 때까지 다시 안 셈
         if (did) TouchLog.add("자동 돌아오기 (${Look.idleName(look.idleSec)}${if (stopped) " · 화면 꺼짐/다른 앱" else ""})")
     }
