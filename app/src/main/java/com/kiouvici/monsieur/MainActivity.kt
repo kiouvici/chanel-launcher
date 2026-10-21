@@ -229,8 +229,8 @@ class MainActivity : ComponentActivity(), MediaHost {
                     themeOpen != null -> hideCard()
                     card.visibility == View.VISIBLE -> hideCard()
                     openP > 0f -> animateOpen(0f)
-                    cur == 2 && haBack(web, HOME_URL) -> {}
-                    cur == 3 && haBack(webHouse, HOUSE_URL) -> {}
+                    kind == 2 && haBack(web, HOME_URL) -> {}
+                    kind == 3 && haBack(webHouse, HOUSE_URL) -> {}
                     cur != 0 -> goPage(0)
                 }
             }
@@ -359,7 +359,36 @@ class MainActivity : ComponentActivity(), MediaHost {
     }
 
     private var tlMoves = 0; private var tlX = 0f; private var tlY = 0f
+    // ───────── 자동 돌아오기 (성훈님, build-47): 손을 뗀 뒤 정한 시간이 지나면 열린 카드에서 나와 맨 위로 ─────────
+    private val idleRun = Runnable { idleReturn() }
+    private fun armIdle() { root.removeCallbacks(idleRun); root.postDelayed(idleRun, look.idleSec * 1000L) }
+    private fun idleReturn() {
+        if (!hasWindowFocus() || sheet != null || menuLayer != null || collection != null || imeUp) { armIdle(); return }
+        var did = false
+        // 런처: 열린 폴더 카드 닫고 서랍 맨 위로
+        if (themeOpen != null || (::card.isInitialized && card.visibility == View.VISIBLE)) { hideCard(); did = true }
+        if (openP > 0f && ::stage.isInitialized && stage.scrollY > 0) { stage.smoothScrollTo(0, 0); did = true }
+        // HA 화면: 세부 화면·팝업에서 나와 맨 위로
+        if (openP == 0f && kind >= 2) { haReset(if (kind == 2) web else webHouse, if (kind == 2) HOME_URL else HOUSE_URL); did = true }
+        if (did) TouchLog.add("자동 돌아오기 (${Look.idleName(look.idleSec)})")
+    }
+    /** HA 화면 처음으로: 다른 보기(주소)로 들어가 있으면 첫 화면을 다시 열고, 같은 보기면 팝업·세부 창을 닫고 맨 위로 스크롤 */
+    private fun haReset(w: WebView, topUrl: String) {
+        val path = android.net.Uri.parse(w.url ?: "").path ?: ""
+        if (path.isNotEmpty() && !Regex("/dashboard-chanel/(home|house|0|1)/?$").containsMatchIn(path) && !path.contains("/auth/")) { w.loadUrl(topUrl); return }
+        val js = "(function(){try{" +
+            "if(window.browser_mod&&window.browser_mod.service){try{window.browser_mod.service('close_popup',{});}catch(e){}}" +
+            "var ha=document.querySelector('home-assistant');if(ha){ha.dispatchEvent(new CustomEvent('hass-more-info',{detail:{entityId:null},bubbles:true,composed:true}));}" +
+            "var a=document.activeElement;while(a&&a.shadowRoot&&a.shadowRoot.activeElement)a=a.shadowRoot.activeElement;" +
+            "if(a&&a!==document.body)a.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',keyCode:27,bubbles:true,composed:true}));" +
+            "window.scrollTo({top:0,behavior:'smooth'});" +
+            "var st=[document];while(st.length){var r=st.pop();var all=r.querySelectorAll('*');for(var i=0;i<all.length;i++){var e=all[i];if(e.scrollTop>0){e.scrollTo({top:0,behavior:'smooth'});}if(e.shadowRoot)st.push(e.shadowRoot);}}" +
+            "}catch(err){}})()"
+        try { w.evaluateJavascript(js, null) } catch (_: Exception) {}
+    }
+
     override fun dispatchTouchEvent(e: MotionEvent): Boolean {
+        when (e.actionMasked) { MotionEvent.ACTION_DOWN -> root.removeCallbacks(idleRun); MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> armIdle() }
         val t0 = android.os.SystemClock.uptimeMillis()
         val r = super.dispatchTouchEvent(e)
         val took = android.os.SystemClock.uptimeMillis() - t0
@@ -398,6 +427,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         // 알림 점: 다른 앱에서 돌아오면 사용 기록을 읽고 폴더 점·앱 점을 함께 다시 켬 (build-38)
         Badges.syncUsage(this); refreshBadges()
         if (fromApp) { fromApp = false; root.post { homeReturnFx() } }
+        armIdle()
         // 권한: 이어서 켜는 중이면 다음 화면, 다 끝나면 창으로 결과 보여 줌 · 처음 한 번은 빠진 게 있으면 창을 띄움
         if (permChain) { root.postDelayed({ if (!openNextPerm()) { permChain = false; permSheet() } }, 350) }
         else if (!getSharedPreferences("monsieur", MODE_PRIVATE).getBoolean("permAsked", false) && permNeed() > 0) {
@@ -405,7 +435,7 @@ class MainActivity : ComponentActivity(), MediaHost {
             root.postDelayed({ permSheet() }, 800)
         }
         TouchLog.firstFrame("복귀")
-        media.setShown(cur == 1)
+        media.setShown(kind == 1)
         updateDate()
         root.postDelayed({ refreshWeather() }, 1500)
         if (!pageLoaded) web.reload()
@@ -563,6 +593,19 @@ class MainActivity : ComponentActivity(), MediaHost {
         }
     }
 
+    /** 자리별 페이지 종류 (0 표지 · 1 미디어 · 2 HA 홈 · 3 HA 집) — 순서는 설정에서 (build-47) */
+    private var order = listOf(0, 2, 3, 1)
+    private val kind get() = order.getOrElse(cur) { 0 }
+    /** 페이지 순서 바꾸기: 페이지를 다시 끼우기만 함 (HA 화면을 다시 불러오지 않음) */
+    private fun applyPageOrder() {
+        order = Look.PAGE_ORDERS[look.pageOrder]
+        val byKind = listOf(cover, media, web, webHouse)
+        pages = order.map { byKind[it] }
+        pager.removeAllViews()
+        pages.forEach { pager.addView(it, FrameLayout.LayoutParams(-1, -1)) }
+        cur = 0; layoutPages(0f); media.setShown(false); updateBars()
+    }
+
     private fun buildPages() {
         pager = Pager()
         root.addView(pager, FrameLayout.LayoutParams(-1, -1))
@@ -570,7 +613,8 @@ class MainActivity : ComponentActivity(), MediaHost {
         media = MediaPage(this, this)
         web = makeWeb(HOME_URL, true)
         webHouse = makeWeb(HOUSE_URL, false)
-        pages = listOf(cover, media, web, webHouse)
+        order = Look.PAGE_ORDERS[look.pageOrder]
+        pages = order.map { listOf(cover, media, web, webHouse)[it] }
         pages.forEach { pager.addView(it, FrameLayout.LayoutParams(-1, -1)) }
 
         indicator = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
@@ -766,14 +810,14 @@ class MainActivity : ComponentActivity(), MediaHost {
             band.alpha = maxOf(shown(web), shown(webHouse))
             band.visibility = if (band.alpha > .01f) View.VISIBLE else View.INVISIBLE
         }
-        if (dx == 0f) { media.setShown(cur == 1); updateBars() }
+        if (dx == 0f) { media.setShown(kind == 1); updateBars() }
     }
 
     /** 밝은 바탕(LIBRARY 표지·미디어)에서는 상태바 글자를 검정으로 */
     private var barsLight: Boolean? = null
     internal fun updateBars() {
         val light = if (openP > .5f) look.theme == Look.LIBRARY && !Dk.lib
-            else themeOpen == null && ((cur == 0 && themeCover.isLight) || (cur == 1 && media.isLight))
+            else themeOpen == null && ((kind == 0 && themeCover.isLight) || (kind == 1 && media.isLight))
         if (light == barsLight) return
         barsLight = light
         androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = light
@@ -810,7 +854,7 @@ class MainActivity : ComponentActivity(), MediaHost {
     private val pullNeed get() = dpf(72f)   // 이만큼(고무줄 적용 후) 당기면 새로고침
     /** 손가락 아래 HA 화면(그림자 DOM 포함)이 맨 위까지 올라가 있는지 */
     private fun haAtTop(x: Float, y: Float, cb: (Boolean) -> Unit) {
-        val w = if (cur == 2) web else if (cur == 3) webHouse else return
+        val w = if (kind == 2) web else if (kind == 3) webHouse else return
         val d = resources.displayMetrics.density
         val cx = x / d; val cy = (y - w.top) / d
         val js = "(function(x,y){try{var e=document.elementFromPoint(x,y);while(e&&e.shadowRoot){var i=e.shadowRoot.elementFromPoint(x,y);if(!i||i===e)break;e=i;}" +
@@ -834,7 +878,7 @@ class MainActivity : ComponentActivity(), MediaHost {
     private fun pullRelease(pull: Float) {
         val dot = pullDot ?: return
         if (pull * .5f >= pullNeed) {
-            val w = if (cur == 2) web else webHouse
+            val w = if (kind == 2) web else webHouse
             TouchLog.add("HA 새로고침 (당겨서)")
             dot.hap(Hap.LIGHT)
             w.reload()
@@ -858,17 +902,17 @@ class MainActivity : ComponentActivity(), MediaHost {
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> { x0 = e.x; y0 = e.y; tDown = e.eventTime; yDown = e.y; dragging = false; vertical = false; shadeDone = false; p0 = openP; pageAnim?.cancel()
                     pulling = false; webAtTop = false
-                    if (cur >= 2 && y0 >= dpf(100f)) haAtTop(e.x, e.y) { webAtTop = it }
+                    if (kind >= 2 && y0 >= dpf(100f)) haAtTop(e.x, e.y) { webAtTop = it }
                     vt?.recycle(); vt = android.view.VelocityTracker.obtain(); vt?.addMovement(e) }
                 MotionEvent.ACTION_MOVE -> {
                     vt?.addMovement(e)
                     val dx = e.x - x0; val dy = e.y - y0
-                    if (cur >= 2 && webAtTop && y0 >= dpf(100f) && dy > dpf(24f) && dy > kotlin.math.abs(dx) * 1.5f) { pulling = true; return true }
+                    if (kind >= 2 && webAtTop && y0 >= dpf(100f) && dy > dpf(24f) && dy > kotlin.math.abs(dx) * 1.5f) { pulling = true; return true }
                     if (kotlin.math.abs(dx) > slop * 2 && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.2f) { dragging = true; x0 = e.x - dx; return true }
                     // 표지 위 사진·버튼을 누른 채 위로 쓸어도 서랍이 열림 — 더 예민하게(12dp, 세로가 가로보다 크면) (10번에 2번 안 되던 것)
-                    if ((cur == 0 || cur == 1) && -dy > dpf(6f) && kotlin.math.abs(dy) > kotlin.math.abs(dx)) { vertical = true; y0 = e.y - dy; return true }
+                    if ((kind == 0 || kind == 1) && -dy > dpf(6f) && kotlin.math.abs(dy) > kotlin.math.abs(dx)) { vertical = true; y0 = e.y - dy; return true }
                     // 아래로 쓸면 아이폰처럼: 왼쪽 절반 알림 · 오른쪽 절반 빠른 설정. HA 화면은 위쪽 100dp에서 시작할 때만 (HA 안 스크롤과 안 겹치게)
-                    if (!shadeDone && dy > dpf(18f) && dy > kotlin.math.abs(dx) * 1.5f && (cur == 0 || cur == 1 || y0 < dpf(100f))) { shadeDone = true; expandShade(x0 > width / 2f); return true }
+                    if (!shadeDone && dy > dpf(18f) && dy > kotlin.math.abs(dx) * 1.5f && (kind == 0 || kind == 1 || y0 < dpf(100f))) { shadeDone = true; expandShade(x0 > width / 2f); return true }
                 }
             }
             return false
@@ -892,8 +936,8 @@ class MainActivity : ComponentActivity(), MediaHost {
                 MotionEvent.ACTION_MOVE -> {
                     val dx = e.x - x0; val dy = e.y - y0
                     // 표지에서는 위로 쓸어 올리면 어디서든 앱 상자가 열림
-                    if (!dragging && !vertical && (cur == 0 || cur == 1) && -dy > dpf(6f) && kotlin.math.abs(dy) > kotlin.math.abs(dx)) vertical = true
-                    if (!dragging && !vertical && !shadeDone && dy > dpf(18f) && dy > kotlin.math.abs(dx) * 1.5f && (cur == 0 || cur == 1 || y0 < dpf(100f))) { shadeDone = true; expandShade(x0 > width / 2f); return true }
+                    if (!dragging && !vertical && (kind == 0 || kind == 1) && -dy > dpf(6f) && kotlin.math.abs(dy) > kotlin.math.abs(dx)) vertical = true
+                    if (!dragging && !vertical && !shadeDone && dy > dpf(18f) && dy > kotlin.math.abs(dx) * 1.5f && (kind == 0 || kind == 1 || y0 < dpf(100f))) { shadeDone = true; expandShade(x0 > width / 2f); return true }
                     if (shadeDone) return true
                     if (vertical) { setOpen((p0 + (-dy) / boxH.coerceAtLeast(1)).coerceIn(0f, 1f)); return true }
                     if (!dragging && kotlin.math.abs(dx) > slop && kotlin.math.abs(dx) > kotlin.math.abs(dy)) dragging = true
@@ -1981,6 +2025,15 @@ class MainActivity : ComponentActivity(), MediaHost {
             list.addView(segRow("아이콘", listOf("COLOR", "MONO", "GILT"), { repo.iconMode }) { repo.iconMode = it; refreshAll() }, LinearLayout.LayoutParams(-1, dp(60f))); line()
             row("보기 · DISPLAY", "크기 · 색 · 글꼴", true) { displaySheet() }; line()
             list.addView(segRow("움직임", listOf("부드럽게", "짧게", "끄기"), { look.motion }) { look.motion = it; refreshGrid() }, LinearLayout.LayoutParams(-1, dp(60f))); line()
+            row("페이지 순서", Look.PAGE_ORDER_NAMES[look.pageOrder], true) {
+                pickSheet("페이지 순서", Look.PAGE_ORDER_NAMES, Look.PAGE_ORDER_NAMES[look.pageOrder], "표지는 늘 첫 페이지입니다. 옆으로 넘기는 순서가 바뀝니다.") { pick ->
+                    look.pageOrder = Look.PAGE_ORDER_NAMES.indexOf(pick).coerceAtLeast(0); applyPageOrder() }
+            }; line()
+            row("자동 돌아오기", Look.idleName(look.idleSec), true) {
+                val names = Look.IDLE_SECS.map { Look.idleName(it) }
+                pickSheet("자동 돌아오기", names, Look.idleName(look.idleSec), "손을 뗀 뒤 이 시간이 지나면 열린 폴더 카드와 HA의 세부 화면·팝업에서 나와 맨 위로 돌아갑니다.") { pick ->
+                    look.idleSec = Look.IDLE_SECS[names.indexOf(pick).coerceAtLeast(0)]; armIdle() }
+            }; line()
             // ② 지금 테마 전용 — 그 테마를 쓸 때만 보임 (다른 테마에서는 아예 없음 · 성훈님 결정). 왼쪽에 테마 색 세로선 하나
             val thColor = when (look.theme) { Look.TRAIN -> V_INK; Look.LIBRARY -> 0xFFC0533F.toInt(); Look.HOUR -> 0xFFC9A96A.toInt(); else -> 0xFF2B2520.toInt() }
             val outer = list
