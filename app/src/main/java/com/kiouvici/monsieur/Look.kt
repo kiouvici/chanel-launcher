@@ -16,6 +16,11 @@ class Look(ctx: Context) {
             "여행·주말·가족 · 엽서 한 장에 담은 우리 여행", "기념일·가족 · 직접 찍은 사진")
         const val HA_BASE = "https://kiouvici.synology.me:8123"
         const val MAX_PHOTOS = 6
+        /** 페이지 종류: 0 표지 · 1 미디어 · 2 HA 홈 · 3 HA 집 */
+        val PAGE_ORDERS = listOf(listOf(0, 2, 3, 1), listOf(0, 2, 1, 3), listOf(0, 1, 2, 3))
+        val PAGE_ORDER_NAMES = listOf("표지 · HA 홈 · HA 집 · 미디어", "표지 · HA 홈 · 미디어 · HA 집", "표지 · 미디어 · HA 홈 · HA 집")
+        val IDLE_SECS = listOf(5, 10, 15, 30, 60, 180)
+        fun idleName(s: Int) = if (s >= 60) "${s / 60}분" else "${s}초"
     }
 
     private val p = ctx.getSharedPreferences("monsieur", Context.MODE_PRIVATE)
@@ -101,6 +106,14 @@ class Look(ctx: Context) {
     fun addRecent(c: Int) { if (c != 0) recentColors = listOf(c) + recentColors.filter { it != c } }
     /** 예전 '이름 색'(진하게·금색·옅게)을 고른 적 있으면 그 색으로 시작 */
     private fun legacyColor(light: Boolean): Int = when (nameColor) { 2 -> 0xFFC9A96A.toInt(); else -> 0 }
+    /** 페이지 순서 (표지는 늘 처음): 0 표지·HA홈·HA집·미디어(기본) · 1 표지·HA홈·미디어·HA집 · 2 표지·미디어·HA홈·HA집(예전) — 성훈님, build-47 */
+    var pageOrder: Int
+        get() = p.getInt("pageOrder", 0).coerceIn(0, 2)
+        set(v) { p.edit().putInt("pageOrder", v).apply() }
+    /** 자동 돌아오기: 손을 뗀 뒤 이만큼 지나면 열린 카드에서 나와 맨 위로 (초) */
+    var idleSec: Int
+        get() = p.getInt("idleSec", 15).let { if (it in IDLE_SECS) it else 15 }
+        set(v) { p.edit().putInt("idleSec", v).apply() }
     /** 움직임 0 부드럽게 · 1 짧게 · 2 끄기 */
     var motion: Int
         get() = p.getInt("motion", 0).coerceIn(0, 2)
