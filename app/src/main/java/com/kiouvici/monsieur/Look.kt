@@ -21,10 +21,21 @@ class Look(ctx: Context) {
         val PAGE_ORDER_NAMES = listOf("표지 · HA 홈 · HA 집 · 미디어", "표지 · HA 홈 · 미디어 · HA 집", "표지 · 미디어 · HA 홈 · HA 집")
         val IDLE_SECS = listOf(5, 10, 15, 30, 60, 180)
         fun idleName(s: Int) = if (s >= 60) "${s / 60}분" else "${s}초"
+        /** 움직임 속도 — 종류별 (성훈님, build-58). 배율은 걸리는 시간에 곱함: 작을수록 빠름, 0은 끄기 */
+        const val SP_HOME = 0; const val SP_DRAWER = 1; const val SP_CARD = 2; const val SP_CELLS = 3; const val SP_PAGE = 4
+        val SPD_TYPES = listOf("런처 첫 화면 나타나기", "앱서랍 열고 닫기", "폴더 카드 열고 닫기", "앱·폴더 칸 나타나기", "페이지 넘김")
+        val SPD_NAMES = listOf("아주 빠르게", "빠르게", "보통", "느리게", "끄기")
+        val SPD_F = floatArrayOf(.4f, .6f, 1f, 1.4f, 0f)
+        val spd = FloatArray(5) { 1f }
+        /** 기본 시간(ms)에 그 종류의 배율을 곱한 시간 */
+        fun ms(base: Long, type: Int): Long = (base * spd[type]).toLong()
+        fun off(type: Int) = spd[type] == 0f
     }
 
     private val p = ctx.getSharedPreferences("monsieur", Context.MODE_PRIVATE)
-    init { Dk.libStyle = libStyle; Dk.lib = libStyle != 0; Dk.voy = voyDark }
+    init { Dk.libStyle = libStyle; Dk.lib = libStyle != 0; Dk.voy = voyDark; for (t in 0 until 5) spd[t] = SPD_F[speedIdx(t)] }
+    fun speedIdx(t: Int) = p.getInt("spd$t", 2).coerceIn(0, 4)
+    fun setSpeed(t: Int, i: Int) { p.edit().putInt("spd$t", i).apply(); spd[t] = SPD_F[i] }
 
     /** LIBRARY · VOYAGE 바탕: true 블랙(기본) · false 밝게 */
     var libDark: Boolean

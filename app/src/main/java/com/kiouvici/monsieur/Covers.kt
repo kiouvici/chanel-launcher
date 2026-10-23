@@ -64,7 +64,7 @@ class ThemeCover(ctx: Context, private val look: Look) : FrameLayout(ctx) {
         val idx = indexOfChild(ph) + 1
         addView(gv, idx, LayoutParams(-1, -1)); addView(white, idx + 1, LayoutParams(-1, -1))
         android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 1200; interpolator = android.view.animation.DecelerateInterpolator(1.6f)
+            duration = Look.ms(1200, Look.SP_HOME); interpolator = android.view.animation.DecelerateInterpolator(1.6f)
             addUpdateListener { val t = it.animatedValue as Float; white.alpha = (1 - t / .55f).coerceIn(0f, 1f); gv.alpha = (1 - (t - .25f) / .75f).coerceIn(0f, 1f) }
             addListener(object : android.animation.AnimatorListenerAdapter() { override fun onAnimationEnd(a: android.animation.Animator) { removeView(gv); removeView(white) } })
             start()
