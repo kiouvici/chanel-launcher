@@ -20,22 +20,6 @@ jobs:
         run: |
           mkdir -p shots
           gradle --no-daemon assembleRelease > shots/build.txt 2>&1 || { tail -60 shots/build.txt; exit 1; }
-      - name: Enable KVM
-        run: |
-          mkdir -p shots; (ls -l /dev/kvm; nproc; free -m) > shots/env.txt 2>&1 || true
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-      - uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 29
-          target: default
-          arch: x86_64
-          profile: pixel_6
-          emulator-boot-timeout: 900
-          disable-animations: true
-          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
-          script: mkdir -p shots && bash scripts/shots.sh > shots/run.log 2>&1 || true
       - name: Push shots to branch
         if: always()
         run: |
