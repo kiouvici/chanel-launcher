@@ -55,7 +55,7 @@ class HourDial(ctx: Context, var kind: Int) : View(ctx) {
     fun sweepIn() {
         sweepAnim?.cancel(); sweep = 0f; invalidate()
         sweepAnim = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 900; startDelay = 120; interpolator = SpringInterp(.6f, .75f, 900)
+            duration = Look.ms(900, Look.SP_HOME); startDelay = Look.ms(120, Look.SP_HOME); interpolator = SpringInterp(.6f, .75f, 900)
             addUpdateListener { sweep = it.animatedValue as Float; invalidate() }
             start()
         }

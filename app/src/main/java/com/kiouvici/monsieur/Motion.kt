@@ -61,7 +61,7 @@ internal fun MainActivity.motionOpen(content: View, flipBack: View? = null, scri
         1 -> {
             content.alpha = 0f; scrim?.invoke(0f)
             ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = 150
+                duration = Look.ms(150, Look.SP_CARD)
                 addUpdateListener { val p = it.animatedValue as Float; content.alpha = p; scrim?.invoke(p) }
                 start()
             }
@@ -108,7 +108,7 @@ internal fun MainActivity.motionOpen(content: View, flipBack: View? = null, scri
         }
         frame(0f)
         ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = if (flip) 950 else 900; interpolator = if (flip) SpringInterp(.66f, .88f, 950) else Springs.open()
+            duration = Look.ms(if (flip) 950 else 900, Look.SP_CARD); interpolator = if (flip) SpringInterp(.66f, .88f, 950) else Springs.open()
             addUpdateListener { frame(it.animatedValue as Float) }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(a: android.animation.Animator) { kids.forEach { it.alpha = 1f }; content.alpha = 1f; content.rotationY = 0f; flipBack?.visibility = View.GONE; if (!staggered) stagger(cells) }
@@ -125,7 +125,7 @@ internal fun MainActivity.motionClose(content: View, scrim: ((Float) -> Unit)?, 
         2 -> { blurBehind(0f); end(); return }
         1 -> {
             ValueAnimator.ofFloat(1f, 0f).apply {
-                duration = 150
+                duration = Look.ms(150, Look.SP_CARD)
                 addUpdateListener { val p = it.animatedValue as Float; content.alpha = p; scrim?.invoke(p) }
                 addListener(object : android.animation.AnimatorListenerAdapter() { override fun onAnimationEnd(a: android.animation.Animator) { blurBehind(0f); end() } })
                 start()
@@ -145,7 +145,7 @@ internal fun MainActivity.motionClose(content: View, scrim: ((Float) -> Unit)?, 
     val flip = flipBack != null
     if (flip) { content.cameraDistance = 12000 * resources.displayMetrics.density; content.pivotX = cw / 2; content.pivotY = ch / 2 }
     ValueAnimator.ofFloat(0f, 1f).apply {
-        duration = 560; interpolator = if (flip) SpringInterp(.5f, 1f, 560) else Springs.close()
+        duration = Look.ms(560, Look.SP_CARD); interpolator = if (flip) SpringInterp(.5f, 1f, 560) else Springs.close()
         addUpdateListener {
             val q = it.animatedValue as Float; val p = 1 - q
             val sx = tw / cw + (1 - tw / cw) * p; val sy = th / ch + (1 - th / ch) * p
@@ -263,11 +263,11 @@ internal fun appCellsIn(v: View): List<View> {
 }
 /** 앞에서부터 12개는 45ms 간격, 나머지는 한꺼번에 — 아래 18dp에서 94%→100%, 스프링 .55 · .82 (성훈님: 더 천천히) */
 internal fun MainActivity.stagger(cells: List<View>) {
-    if (motionMode != 0) { cells.forEach { it.alpha = 1f }; return }
+    if (motionMode != 0 || Look.off(Look.SP_CELLS)) { cells.forEach { it.alpha = 1f; it.translationY = 0f; it.scaleX = 1f; it.scaleY = 1f }; return }
     val dy = 18 * resources.displayMetrics.density
     cells.forEachIndexed { i, c ->
         c.alpha = 0f; c.translationY = dy; c.scaleX = .94f; c.scaleY = .94f
-        c.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f).setStartDelay(minOf(i, 12) * 45L).setDuration(850)
+        c.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f).setStartDelay(Look.ms(minOf(i, 12) * 45L, Look.SP_CELLS)).setDuration(Look.ms(850, Look.SP_CELLS))
             .setInterpolator(SpringInterp(.55f, .82f, 850)).start()
     }
 }

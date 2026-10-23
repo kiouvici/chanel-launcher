@@ -314,7 +314,7 @@ class MainActivity : ComponentActivity(), MediaHost {
     private var fromApp = false
     /** 홈 복귀 효과는 한 번에 하나만 (샤넬팀): HOUR 바늘 · CAPTION 그날 첫 현상 · 그 밖은 줌 104→100% */
     private fun homeReturnFx() {
-        if (motionMode != 0 || openP > 0f || card.visibility == View.VISIBLE || themeOpen != null) return
+        if (motionMode != 0 || Look.off(Look.SP_HOME) || openP > 0f || card.visibility == View.VISIBLE || themeOpen != null) return
         if (cur == 0 && look.theme == Look.HOUR && themeCover.hasDial) { themeCover.sweepHands(); return }
         if (cur == 0 && look.theme == Look.CAPTION) {
             val cal = java.util.Calendar.getInstance(); cal.add(java.util.Calendar.HOUR_OF_DAY, -5)   // 새벽 5시 넘어 첫 홈
@@ -325,7 +325,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         val v = pages.getOrNull(cur) ?: return
         v.pivotX = v.width / 2f; v.pivotY = v.height / 2f
         v.scaleX = 1.04f; v.scaleY = 1.04f; v.alpha = .92f
-        v.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(600).setInterpolator(SpringInterp(.42f, .9f, 600)).start()
+        v.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(Look.ms(600, Look.SP_HOME)).setInterpolator(SpringInterp(.42f, .9f, 600)).start()
     }
     // ── 표지 사진 시차 (VOYAGE · CAPTION, 표지가 보일 때만 · 절전이면 끔) ──
     private var tiltOn = false; private var tiltBase: FloatArray? = null; private var tiltX = 0f; private var tiltY = 0f
@@ -892,7 +892,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         if (n != cur) pager.hap(Hap.SEL)
         pageAnim = ValueAnimator.ofFloat(fromDx, dir * w).apply {
             // 부드럽게: 아이폰 페이지 넘김처럼 스프링 (.42 · .92)
-            duration = if (motionMode == 0) 700 else 360; interpolator = if (motionMode == 0) SpringInterp(.55f, 1f, 700) else EASE   // 더 부드럽게 미끄러져 멈춤 (넘침 없음)
+            duration = Look.ms(if (motionMode == 0) 700 else 360, Look.SP_PAGE); interpolator = if (motionMode == 0) SpringInterp(.55f, 1f, 700) else EASE   // 더 부드럽게 미끄러져 멈춤 (넘침 없음)
             addUpdateListener { layoutPages(it.animatedValue as Float) }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(a: android.animation.Animator) { cur = n; layoutPages(0f) }
@@ -1026,7 +1026,7 @@ class MainActivity : ComponentActivity(), MediaHost {
         private fun goBack(dx: Float) {
             if (reduceMotion || dx == 0f) { layoutPages(0f); return }
             pageAnim = ValueAnimator.ofFloat(dx, 0f).apply {
-                duration = 240; interpolator = EASE
+                duration = Look.ms(240, Look.SP_PAGE); interpolator = EASE
                 addUpdateListener { layoutPages(it.animatedValue as Float) }; start()
             }
         }
@@ -1121,11 +1121,11 @@ class MainActivity : ComponentActivity(), MediaHost {
     private var anim: ValueAnimator? = null
     private fun animateOpen(target: Float) {
         anim?.cancel()
-        if (motionMode == 2) { setOpen(target); return }
+        if (motionMode == 2 || Look.off(Look.SP_DRAWER)) { setOpen(target); return }
         val smooth = motionMode == 0
         anim = ValueAnimator.ofFloat(openP, target).apply {
             // 부드럽게: 애플식 스프링(0.45초 · 감쇠 .86) — 넘치는 부분은 잘라서 상자 아래가 비지 않게 · 짧게: 0.18초
-            duration = if (smooth) 620 else 180; interpolator = if (smooth) Springs.drawer() else EASE
+            duration = Look.ms(if (smooth) 620 else 180, Look.SP_DRAWER); interpolator = if (smooth) Springs.drawer() else EASE
             var tapped = false
             addUpdateListener { val v = it.animatedValue as Float; setOpen(if (target == 1f) v.coerceIn(0f, 1.04f) else v.coerceIn(0f, 1f))
                 // 자리에 닿는 순간 가벼운 '톡' (애플)
@@ -2081,6 +2081,7 @@ class MainActivity : ComponentActivity(), MediaHost {
             list.addView(segRow("아이콘", listOf("COLOR", "MONO", "GILT"), { repo.iconMode }) { repo.iconMode = it; refreshAll() }, LinearLayout.LayoutParams(-1, dp(60f))); line()
             row("보기 · DISPLAY", "크기 · 색 · 글꼴", true) { displaySheet() }; line()
             list.addView(segRow("움직임", listOf("부드럽게", "짧게", "끄기"), { look.motion }) { look.motion = it; refreshGrid() }, LinearLayout.LayoutParams(-1, dp(60f))); line()
+            row("움직임 속도", speedSummary(), true) { speedSheet() }; line()
             row("페이지 순서", Look.PAGE_ORDER_NAMES[look.pageOrder], true) {
                 pickSheet("페이지 순서", Look.PAGE_ORDER_NAMES, Look.PAGE_ORDER_NAMES[look.pageOrder], "표지는 늘 첫 페이지입니다. 옆으로 넘기는 순서가 바뀝니다.") { pick ->
                     look.pageOrder = Look.PAGE_ORDER_NAMES.indexOf(pick).coerceAtLeast(0); applyPageOrder() }
@@ -2148,6 +2149,22 @@ class MainActivity : ComponentActivity(), MediaHost {
     }
 
     /** 이름 + 가로 칸 고르기 (시트를 닫지 않고 바로 바뀜) */
+    /** 움직임 속도: 모두 같으면 그 이름, 다르면 '종류별' */
+    private fun speedSummary(): String { val s = (0 until 5).map { look.speedIdx(it) }.distinct(); return if (s.size == 1) Look.SPD_NAMES[s[0]] else "종류별" }
+    /** 종류 고르기 → 속도 고르기 → 다시 종류 목록 (build-58) */
+    private fun speedSheet() {
+        val items = Look.SPD_TYPES.mapIndexed { t, n -> "$n · ${Look.SPD_NAMES[look.speedIdx(t)]}" }
+        pickSheet("움직임 속도", items, "", "바꿀 움직임을 고르세요. '움직임'이 '부드럽게'일 때 기준입니다.") { pick ->
+            val t = items.indexOf(pick).coerceAtLeast(0)
+            root.postDelayed({
+                pickSheet(Look.SPD_TYPES[t], Look.SPD_NAMES, Look.SPD_NAMES[look.speedIdx(t)], "보통이 지금 속도입니다. 빠르게는 시간이 0.6배, 아주 빠르게는 0.4배로 줄어듭니다.") { lv ->
+                    look.setSpeed(t, Look.SPD_NAMES.indexOf(lv).coerceAtLeast(0))
+                    TouchLog.add("움직임 속도: ${Look.SPD_TYPES[t]} → $lv")
+                    root.postDelayed({ speedSheet() }, 380)
+                }
+            }, 380)
+        }
+    }
     private fun segRow(title: String, opts: List<String>, get: () -> Int, set: (Int) -> Unit): LinearLayout {
         val ir = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         ir.addView(label(title, Style.kr(this, 300), 14f, Style.INK, 0f, Gravity.START or Gravity.CENTER_VERTICAL), LinearLayout.LayoutParams(0, -2, 1f))
