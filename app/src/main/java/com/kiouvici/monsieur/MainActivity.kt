@@ -313,14 +313,15 @@ class MainActivity : ComponentActivity(), MediaHost {
     override fun onRestart() { super.onRestart(); TouchLog.mark("다른 앱에서 돌아옴"); fromApp = true }
     private var fromApp = false
     /** 홈 복귀 효과는 한 번에 하나만 (샤넬팀): HOUR 바늘 · CAPTION 그날 첫 현상 · 그 밖은 줌 104→100% */
-    private fun homeReturnFx() {
+    private fun homeReturnFx(force: Boolean = false) {
+        TouchLog.add("런처 첫 화면 효과 (${Look.SPD_NAMES[look.speedIdx(Look.SP_HOME)]})")
         if (motionMode != 0 || Look.off(Look.SP_HOME) || openP > 0f || card.visibility == View.VISIBLE || themeOpen != null) return
         if (cur == 0 && look.theme == Look.HOUR && themeCover.hasDial) { themeCover.sweepHands(); return }
         if (cur == 0 && look.theme == Look.CAPTION) {
             val cal = java.util.Calendar.getInstance(); cal.add(java.util.Calendar.HOUR_OF_DAY, -5)   // 새벽 5시 넘어 첫 홈
             val day = cal.get(java.util.Calendar.YEAR) * 1000 + cal.get(java.util.Calendar.DAY_OF_YEAR)
             val sp = getSharedPreferences("monsieur", MODE_PRIVATE)
-            if (sp.getInt("developDay", 0) != day) { sp.edit().putInt("developDay", day).apply(); themeCover.develop(); return }
+            if (force || sp.getInt("developDay", 0) != day) { sp.edit().putInt("developDay", day).apply(); themeCover.develop(); return }
         }
         val v = pages.getOrNull(cur) ?: return
         v.pivotX = v.width / 2f; v.pivotY = v.height / 2f
@@ -2157,13 +2158,24 @@ class MainActivity : ComponentActivity(), MediaHost {
         pickSheet("움직임 속도", items, "", "바꿀 움직임을 고르세요. '움직임'이 '부드럽게'일 때 기준입니다.") { pick ->
             val t = items.indexOf(pick).coerceAtLeast(0)
             root.postDelayed({
-                pickSheet(Look.SPD_TYPES[t], Look.SPD_NAMES, Look.SPD_NAMES[look.speedIdx(t)], "보통이 지금 속도입니다. 빠르게는 시간이 0.6배, 아주 빠르게는 0.4배로 줄어듭니다.") { lv ->
+                pickSheet(Look.SPD_TYPES[t], Look.SPD_NAMES, Look.SPD_NAMES[look.speedIdx(t)], "고르면 바로 한 번 보여 드립니다. 보통이 예전 속도이고, 빠르게는 시간이 0.6배, 아주 빠르게는 0.4배입니다.") { lv ->
                     look.setSpeed(t, Look.SPD_NAMES.indexOf(lv).coerceAtLeast(0))
                     TouchLog.add("움직임 속도: ${Look.SPD_TYPES[t]} → $lv")
-                    root.postDelayed({ speedSheet() }, 380)
+                    speedPreview(t)
                 }
             }, 380)
         }
+    }
+    /** 바꾼 속도를 그 자리에서 한 번 보여 줌 (build-59) */
+    private fun speedPreview(t: Int) {
+        root.postDelayed({
+            when (t) {
+                Look.SP_HOME -> { closeAllNow(); goPage(0, false); root.postDelayed({ homeReturnFx(force = true) }, 300) }
+                Look.SP_DRAWER -> { hideSettingsSheet(); hideMenu(); hideCard(false); animateOpen(0f); root.postDelayed({ animateOpen(1f) }, Look.ms(620, Look.SP_DRAWER) + 400) }
+                Look.SP_PAGE -> { closeAllNow(); goPage(0, false); root.postDelayed({ goPage(1); root.postDelayed({ goPage(0) }, Look.ms(700, Look.SP_PAGE) + 600) }, 300) }
+                else -> { hideSettingsSheet(); hideMenu(); hideCard(false); if (openP < 1f) setOpen(1f); repo.folders().firstOrNull()?.let { lastTap = null; showFolder(it) } }
+            }
+        }, 420)
     }
     private fun segRow(title: String, opts: List<String>, get: () -> Int, set: (Int) -> Unit): LinearLayout {
         val ir = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
